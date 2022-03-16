@@ -1,0 +1,22 @@
+{
+  "name": "Getting Started",
+  "description": "Build an Extension!",
+  "version": "1.0",
+  "manifest_version": 3,
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.asurascans.com/*"],
+      "js": ["content.js"]
+    }
+  ],
+  "permissions": [
+    "27bslash.eu.pythonanywhere.com/*",
+    "storage",
+    "scripting",
+    "activeTab",
+    "tabs"
+  ]
+}
