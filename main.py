@@ -42,17 +42,18 @@ def scrape():
                 if item['title'] == manga['title']:
                     if item['latest'] > manga['chapter']:
                         manga['read'] = False
-                        manga['sources'] = update_sources(
-                            item['scansite'], manga)
                         # this will run every time make it update only once
                         manga['updated'] = time.time()
                         manga['latest'] = item['latest']
                         manga['link'] = item['link']
+                        manga['sources'] = update_sources(
+                            item['scansite'], manga)
                         manga['domain'] = item['domain']
                         manga['test'] = True
-            
-                db['manga-list'].find_one_and_update({'user': 'all_manga'},
-                                                    {"$set": {f'manga-list.{i}': manga}})
+                db['manga-list'].find_one_and_update({'user': user['user']},
+                                                     {"$set": {f'manga-list.{i}': manga}})
+            db['all_manga'].find_one_and_update(
+                {'title': item['title']}, {"$set": item}, upsert=True)
         print(user['user'], time.time())
         # update manga in db
 
@@ -65,9 +66,10 @@ def scrape():
 
 def update_sources(scansite, manga):
     if 'sources' not in manga:
-        manga['sources'] = []
+        manga['sources'] = {}
     if scansite not in manga['sources']:
-        manga['sources'].append(scansite)
+        manga['sources'][scansite] = {
+            'url': manga['link'], 'latest': manga['latest']}
     return manga['sources']
 
 
@@ -137,6 +139,7 @@ def get_todays_list():
             d['domain'] = domain
             d['link'] = url
             d['scansite'] = scan_site
+            d['sources'] = update_sources(scan_site, d)
             manga_list.append(d)
     return manga_list
 
@@ -207,4 +210,5 @@ def main():
 
 
 if __name__ == '__main__':
+    # print(get_latest('return-of-the-mount-sect'), '\n')
     main()
