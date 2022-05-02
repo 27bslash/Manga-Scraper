@@ -1,214 +1,114 @@
-from multiprocessing import connection
-import praw
-import re
-from pprint import pprint
-import pymongo
+import datetime
 import os
-from dotenv import load_dotenv
+import re
+import sys
 import time
-load_dotenv()
+from pprint import pprint
 
+import praw
+import pymongo
+import requests
+from apscheduler.schedulers.background import BlockingScheduler
+from dotenv import load_dotenv
+
+
+load_dotenv()
 connection = os.environ['DB_CONNECTION']
 cluster = pymongo.MongoClient(
     f"{connection}?retryWrites=true&w=majority")
 db = cluster['manga-scraper']
 
-#
-# TODO
-# scrape reddit on timer
-# check manga db for user if it matches notify somehow
-# if user goes on site update counter
-# have some kind of overview on a chrome extension
-#
+
+class Source:
+    db = db
+
+    def update_manga_dict(self, manga, item):
+        if item['latest'] > manga['chapter']:
+            manga['read'] = False
+            # this will run every time make it update only once
+            manga['latest'] = item['latest']
+            if 'link' not in manga:
+                manga['link'] = item['link']
+            manga['sources'] = self.update_sources(manga,
+                                                   item['scansite'], item)
+            manga['domain'] = item['domain']
+            manga['test'] = True
+        else:
+            manga['read'] = True
+            manga['sources'] = self.update_sources(manga,
+                                                   item['scansite'], item)
+        return manga
+
+    def update_sources(self, curr, scansite,  item):
+        db_entry = db['all_manga'].find_one({'title': item['title']})
+        # if 'sss' in item['title']:
+        # print(scansite, db_entry['sources'])
+        source_string = {
+            'url': curr['link'], 'latest': item['latest'], 'latest_link': item['link'], 'time_updated': item['time_updated']}
+        if not db_entry:
+            db_entry = {'sources': {}}
+        if 'sources' not in db_entry:
+            db_entry['sources'] = {}
+        if'any' not in db_entry['sources']:
+            db_entry['sources']['any'] = source_string
+        if db_entry['sources']['any']['latest'] < item['latest']:
+            db_entry['sources']['any'] = source_string
+        elif db_entry['sources']['any']['time_updated'] >= item['time_updated']:
+            #     print('any')
+            # print(item['title'])
+            # print(db_entry['sources'])
+            db_entry['sources']['any'] = source_string
+        # print(db_entry['sources']['any']['time_updated'], item['time_updated'], db_entry['sources']
+        #       ['any']['latest'], item['latest'], db_entry['sources']['any']['time_updated'] < item['time_updated'])
+        db_entry['sources'][scansite] = source_string
+        return db_entry['sources']
+
+    def clean_title(self, title):
+        return re.sub(
+            r'\s\s+', ' ', title).strip().replace(' ', '-').replace('\n', '').lower()
+
+    def clean_chapter(self, chapter):
+        regex = r"(?<=Chapter )\d+"
+        match = re.search(regex, chapter)
+        if match:
+            return match.group().strip()
+        else:
+            return chapter.replace('Chapter ', '').strip()
+
+    def convert_time(self, time_updated):
+        time_updated = time_updated.split(' ')
+        n = time_updated[0]
+        amount = time_updated[1].replace('s', '')
+        current_time = time.time()
+        if amount == 'second':
+            return current_time - int(n)
+        elif amount == 'minute':
+            return current_time - int(n) * 60
+        elif amount == 'hour':
+            return current_time - int(n) * 60 * 60
+        elif amount == 'day':
+            return current_time - int(n) * 60 * 60 * 24
+        elif amount == 'week':
+            return current_time - int(n) * 60 * 60 * 24 * 7
+        elif amount == 'month':
+            return current_time - int(n) * 60 * 60 * 24 * 30
+        elif amount == 'year':
+            return current_time - int(n) * 60 * 60 * 24 * 30 * 12
+        else:
+            return current_time
+
+    def main(self):
+        self.scrape(first_run=True)
+        pass
+
+    def __call__(self):
+        self.main()
 
 
-def scrape():
-    curr_urls = db['scans'].find_one({})
-    urls = set()
-    total_manga = get_todays_list()
 
-    for user in db['manga-list'].find({}):
-        user_list = []
-        # testing purposes
-        if user['user'] == 'all_manga':
-            continue
-        # print(user)
-        if not user['manga-list']:
-            # print(user['user'])
-            pass
-        for item in total_manga:
-            # pprint(item)
-            for i, manga in enumerate(user['manga-list']):
-                if item['title'] == manga['title']:
-                    if item['latest'] > manga['chapter']:
-                        manga['read'] = False
-                        # this will run every time make it update only once
-                        manga['updated'] = time.time()
-                        manga['latest'] = item['latest']
-                        manga['link'] = item['link']
-                        manga['sources'] = update_sources(
-                            item['scansite'], manga)
-                        manga['domain'] = item['domain']
-                        manga['test'] = True
-                db['manga-list'].find_one_and_update({'user': user['user']},
-                                                     {"$set": {f'manga-list.{i}': manga}})
-            db['all_manga'].find_one_and_update(
-                {'title': item['title']}, {"$set": item}, upsert=True)
-        print(user['user'], time.time())
-        # update manga in db
-
-    if curr_urls:
-        [urls.add(url) for url in curr_urls['urls']]
-    # pprint(manga_list)
-    db['scans'].find_one_and_update(
-        {}, {'$set': {'urls': list(urls)}}, upsert=True)
-
-
-def update_sources(scansite, manga):
-    if 'sources' not in manga:
-        manga['sources'] = {}
-    if scansite not in manga['sources']:
-        manga['sources'][scansite] = {
-            'url': manga['link'], 'latest': manga['latest']}
-    return manga['sources']
-
-
-def get_domain_from_self_post(submission, title, chapter_num):
-    banned_domains = ['alpha', 'leviatan', 'reaper', 'luminous']
-    for name in banned_domains:
-        if name in submission.title.lower():
-            title = title.replace(' ', '-')
-            if name == 'reaper':
-                url = f"https://reaperscans.com/series/{title}/chapter-{chapter_num}/"
-            elif name == 'leviatan':
-                url = f"https://leviatanscans.com/manga/{title}/{chapter_num}/"
-            elif name == 'luminous':
-                url = f"https://luminousscans.com/{title}-chapter-{chapter_num}/"
-            elif name == 'alpha':
-                url = f"https://alpha-scans.org/{title}-chapter-{chapter_num}"
-            return url
-    return None
-
-
-def get_todays_list():
-    title_regex = r"(?<=\[DISC\]).*(?= \(?ch|ep|chapter)"
-    reddit = praw.Reddit(
-        client_id="wEBZeE2Bh10Ki1kCrchhKQ",
-        client_secret="XBQQVa1bfXj1I2vqzAgncn4B3yjUUg",
-        user_agent="manga scraper by u/27bslash",
-    )
-    manga_list = []
-    for i, submission in enumerate(reddit.subreddit("manga").new(limit=100)):
-        d = {}
-        if '[DISC]' in submission.title:
-            title = re.findall(
-                title_regex, submission.title, re.IGNORECASE)
-            if title:
-                title = re.sub(r"\s?\-\s?$", '', title[0])
-                title = title.strip().lower()
-            else:
-                continue
-            chapter_num = get_chapter_number(submission.title)
-            # print(submission.url)
-            if 'reddit' not in submission.url:
-                # continue
-                domain = extract_domain(submission.url)
-                url = submission.url
-                if 'cubari' in submission.url:
-                    scan_site = get_scans(title=submission.title)
-                    url = get_domain_from_self_post(
-                        submission=submission, title=title, chapter_num=chapter_num)
-                    domain = extract_domain(url)
-                if domain:
-                    scan_site = get_scans(url=domain)
-                else:
-                    continue
-                # check_if_in_db(submission.url)
-            elif 'reddit' in submission.url:
-                # print(submission.title)
-                url = get_domain_from_self_post(
-                    submission, title, chapter_num)
-                domain = extract_domain(url)
-                # domain = extract_domain(submission.url)
-                if domain:
-                    scan_site = get_scans(url=domain)
-                continue
-                # db['todays-manga'].find_one_and_update({}, {})
-            d['title'] = title.replace(' ', '-')
-            d['latest'] = chapter_num
-            d['domain'] = domain
-            d['link'] = url
-            d['scansite'] = scan_site
-            d['sources'] = update_sources(scan_site, d)
-            manga_list.append(d)
-    return manga_list
-
-
-def get_chapter_number(title):
-    matches = re.findall(r"\d+\.?\d*", title)
-    if matches:
-        match = matches[len(matches)-1]
-        res = re.sub(r"^0+", '', match)
-        return res
-    else:
-        return -1
-
-
-def update_all():
-    for user in db['manga-list'].find({}):
-        add_field_to_manga(user, 'sources', [])
-
-
-def add_field_to_manga(user, field, value):
-    for manga in user['manga-list']:
-        manga[field] = value
-    db['manga-list'].find_one_and_update({'user': user['user']},
-                                         {"$set": {'manga-list': user['manga-list']}}, upsert=True)
-
-
-def get_scans(title=None, url=None):
-    # scan_regex = "[a-z-]*(?=\.)"
-    if title:
-        title = title.replace("[DISC]", '')
-        # extract scans from [] () or after | symbol
-        scan_regex = r"\[.*\]|\(.*\)|(?=\|).*|"
-        scan_site = re.findall(scan_regex, title, re.IGNORECASE)
-        scan_site = [str for str in scan_site if len(str) > 0]
-        if len(scan_site) > 0 and 'cubari' not in title.lower():
-            scan_site = re.sub(r"[\]\[\(\)\|\s]", '',
-                               scan_site[0]).strip().lower()
-            return scan_site
-        return None
-    url = re.sub(r'viewer|reader', '', url)
-    if url:
-        scan_regex = "[a-z-]*(?<!www)(?=\.)"
-        scanSite = re.findall(scan_regex, url, re.IGNORECASE)[0]
-    return scanSite
-
-
-def check_if_in_db(manga, latest, scan=None):
-    # user = 'test'
-    # manga has curr ch , title,scansite and link fields
-    curr_chapter = float(manga['chapter'])
-    # print(manga['scan'])
-    scan = manga['scansite']
-    return curr_chapter < float(latest)
-
-
-def extract_domain(url):
-    if not url:
-        return
-    regex = r"^(?:https?:\/\/)?(?:[^@\/\n]+@)?(?:www\.)?([^:\/?\n]+)"
-    try:
-        return re.search(regex, url).group()
-    except Exception as e:
-        print(url, e, e.__class__)
-
-
-def main():
-    scrape()
 
 
 if __name__ == '__main__':
-    # print(get_latest('return-of-the-mount-sect'), '\n')
-    main()
+    scraper = Source()
+    scraper()
+    pass
