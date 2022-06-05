@@ -6,17 +6,16 @@ from main import Source
 
 class Reaper(Source):
     def main(self):
-        with open('scrapers/reaper.html', 'w', encoding="utf-8") as f:
-            f.write(req.text)
+        return
 
     def scrape(self):
-        with open('scrapers/test_pages/reaper.html', 'r', encoding="utf-8") as f:
-            text = f.read()
+        # with open('scrapers/test_pages/reaper.html', 'r', encoding="utf-8") as f:
+        #     text = f.read()
         req = requests.get('https://reaperscans.com/')
+        if req.status_code != 200:
+            print('reaper', req.status_code, 'broken')
+            return []
         soup = BeautifulSoup(req.text, 'html.parser')
-        # row = soup.find('div', {'class': 'row'}).findChildren(
-        #     'div', recursive=True)
-        # print(row)
         content = soup.find_all('div', class_='series-box')
         lst = []
         for item in content:
@@ -47,6 +46,7 @@ class Reaper(Source):
                 d['time_updated'] = time
                 d['link'] = link
                 d['scansite'] = 'reaperscans'
+                d['domain'] = 'https://reaperscans.com'
                 lst.append(d)
             else:
                 break
@@ -62,5 +62,7 @@ class Reaper(Source):
 
     def __call__(self):
         return self.scrape()
+
+
 if __name__ == "__main__":
     Reaper().scrape()
