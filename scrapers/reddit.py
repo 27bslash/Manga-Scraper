@@ -94,7 +94,7 @@ class Reddit_scraper():
         return url
 
     def get_title(self, submission, testing=False):
-        title_regex = r"(?<=\[DISC\]).*?(?= \(?ch|ep|chapter)"
+        title_regex = r"(?<=\[DISC\]).*?(?= \(?ch |ch\.|ep |chapter|season|episode|::|vol\.)"
         if testing:
             base_title_string = submission
         else:
@@ -103,11 +103,15 @@ class Reddit_scraper():
             title_regex, base_title_string, re.IGNORECASE)
         if title:
             title = re.sub(r"\s?\-\s?$", '', title[0])
+            if 'webtoons' in submission.url:
+                title = re.sub(r'Season.*', '', title)
+
             title = re.sub(r"::", '', title)
-            title = title.replace('(', '')
-            title = title.replace(')', '')
+            title = re.sub(r"[|()\[\]]", '', title)
             title = title.replace('&', 'and')
             title = title.strip().lower()
+            title = re.sub(r"\W$", ' ', title)
+            title = title.strip()
             title = title.replace(' ', '-').replace('’', '\'')
             title = title.replace('---', '-')
             return title
