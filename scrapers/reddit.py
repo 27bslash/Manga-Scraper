@@ -7,7 +7,6 @@ import time
 from dotenv import load_dotenv
 import requests
 
-
 load_dotenv()
 connection = os.environ['DB_CONNECTION']
 cluster = pymongo.MongoClient(
@@ -129,6 +128,8 @@ class Reddit_scraper():
             if len(scan_site) > 0 and 'cubari' not in title.lower():
                 scan_site = re.sub(r"[\]\[\(\)\|\s]", '',
                                    scan_site[0]).strip().lower()
+                if 'revised' in scan_site or 'draw' in scan_site or 'volume' in scan_site:
+                    return None
                 return scan_site.replace('-', '')
             return None
         url = re.sub(r'viewer|reader', '', url)
@@ -149,11 +150,24 @@ class Reddit_scraper():
         elif scan_site == 'flame':
             return 'flamescans.org'
         return
+
     def get_todays_list(self, first_run=False):
         reddit = praw.Reddit(
             client_id="wEBZeE2Bh10Ki1kCrchhKQ",
             client_secret="XBQQVa1bfXj1I2vqzAgncn4B3yjUUg",
             user_agent="manga scraper by u/27bslash",
+            check_for_updates=True,
+            comment_kind="t1",
+            message_kind="t4",
+            redditor_kind="t2",
+            submission_kind="t3",
+            subreddit_kind="t5",
+            trophy_kind="t6",
+            oauth_url="https://oauth.reddit.com",
+            ratelimit_seconds=5,
+            reddit_url="https://www.reddit.com",
+            short_url="https://redd.it",
+            timeout=16
         )
         manga_list = []
         submissions = []
@@ -165,54 +179,89 @@ class Reddit_scraper():
             submissions.append(submission)
         for submission in submissions[::-1]:
             d = {}
+            scan_site = None
+            title = None
+            chapter_num = None
+            url = None
+            domain = None
             if '[DISC]' in submission.title:
+                
                 title = self.get_title(submission)
                 if not title:
-                    # print('no title/', submission.title)
                     continue
+                chapter_num = self.get_chapter_number(submission)
+                if not chapter_num:
+                    continue
+                url = self.get_url(
+                    submission=submission, title=title, chapter_num=chapter_num)
 
-                chapter_num = self.get_chapter_number(submission.title)
-                # print(submission.url)
                 domain = submission.domain
-                if 'i.redd' in domain:
+                if 'self.manga' in domain:
+                    domain = self.extract_domain(url)
+                    if submission.selftext:
+                        for name in self.banned_domains:
+                            if name in submission.selftext.lower():
+                                scan_site = name+'scans'
+                                break
+
+                    if scan_site is None and url is not None:
+                        sc_site = self.get_scans(title=submission.title)
+                        scan_site = sc_site if sc_site else self.get_scans(
+                            url=url)
+                elif 'i.redd' in domain:
                     continue
                 elif 'cubari' in domain:
                     # print(submission.title, domain)
                     scan_site = self.get_scans(title=submission.title)
-                    # print('scan site', scan_site)
-                    url = self.get_url(
-                        submission=submission, title=title, chapter_num=chapter_num)
-                    # print('url', url)
-                    # print('link post', title, url)
-                    # print('domain', domain)
                     if url:
                         domain = self.extract_domain(url)
                         # print('domain2', domain)
-                    else:
-                        continue
+                    if 'cubari' in domain  or scan_site is None:
+                        db_entry = db['all_manga'].find_one({'title': title})
+                        if db_entry:
+                            if 'domain' not in db_entry:
+                                print(db_entry)
+                            domain = db_entry['domain']
+                            url = self.banned_urls(
+                                db_entry['scansite'], title, chapter_num) or url
+                            scan_site = db_entry['scansite']
+
+                        else:
+                            scan_site = 'cubari'
                 elif 'reddit.com' in domain:
                     # print('reddit', title)
                     url = submission.url
                     # print(vars(submission))
                     # weird self post comment redirect'
                     if 'comments' in submission.url:
-                        url = re.sub(r"\/$", '', submission.url)
-                        search = re.search(r"[^\/]+$", url, re.IGNORECASE)
+                        search = re.search(
+                            r"(?<=comments/)\w+", url, re.IGNORECASE)
                         subm = reddit.submission(id=search.group(0))
-                        domain = subm.domain
-                        if domain and 'reddit' not in domain:
-                            url = self.get_url(
-                                subm, title, chapter_num)
+                        try:
+                            domain = subm.domain
+                            if domain and 'reddit' not in domain:
+                                url = self.get_url(
+                                    subm, title, chapter_num)
+                        except Exception as e:
+                            print('submission error', e, title, chapter_num)
                     domain = self.extract_domain(url)
                     if domain and 'reddit' not in domain and 'twitter' not in domain and 'cubari' not in domain:
                         scan_site = self.get_scans(url=domain)
-                        print(title, scan_site, url, domain)
                     else:
-                        print(title, 'no domain', chapter_num)
+                        # print(title, 'no domain', chapter_num)
                         continue
                 else:
                     url = submission.url
                     scan_site = self.get_scans(url=domain)
+                    # print(title, domain, scan_site)
+                if not url:
+                    print('no url', title, chapter_num, domain, submission.url)
+                    continue
+                if not scan_site:
+                    print('no scan site', title, chapter_num,
+                          domain, submission.url)
+
+                    
                 d['type'] = 'reddit'
                 d['time_updated'] = submission.created_utc
                 d['title'] = title
@@ -220,7 +269,6 @@ class Reddit_scraper():
                 d['domain'] = domain
                 d['link'] = url
                 d['scansite'] = scan_site
-                # print(d)
                 # d['sources'] = super().update_sources(d, scan_site, d)
                 manga_list.append(d)
         return manga_list
@@ -253,68 +301,15 @@ class Reddit_scraper():
             chapter_num = re.sub(r"^0+", '', chapter_num)
             chapter_num = re.sub(r"^\W+", '', chapter_num)
             return chapter_num
+        # matches = re.findall(r"\d+\.?\d*", title)
+        # if matches:
+        #     match = matches[len(matches)-1]
+        #     res = re.sub(r"^0+", '', match)
+        #     return res
 
     def main(self, first_run=False):
         return self.get_todays_list(first_run)
 
 
-def update_all():
-    for user in db['manga-list'].find({}):
-        add_field_to_manga(user, 'o', time.time())
-        # add_field_to_manga(user, 'time_updated', 0)
-    for doc in db['all_manga'].find({}):
-        for k in doc['sources']:
-            doc['sources'][k]['time_updated'] = time.time()
-        db['all_manga'].find_one_and_update({'_id': doc['_id']}, {"$set": doc})
-
-
-def add_field_to_manga(user, field, value):
-    for manga in user['manga-list']:
-        for k in manga['sources']:
-            manga['sources'][k]['time_updated'] = value
-    db['manga-list'].find_one_and_update({'user': user['user']},
-                                         {"$set": {'manga-list': user['manga-list']}}, upsert=True)
-
-
-def get_leviatan_url():
-    req = requests.get('https://leviatanscans.com/')
-    print(req.url)
-    return req.url
-
-
-def add_current_source():
-    lst = db['manga-list'].find_one({})
-    for doc in lst['manga-list']:
-        doc['current_source'] = 'any'
-    db['manga-list'].find_one_and_update(
-        {'user': '1649438609702'}, {"$set": lst})
-
-
-def change_leviatan_url():
-    base_url = get_leviatan_url()
-    # base_url = 'https://leviatanscans.com/omg'
-    lst = db['manga-list'].find_one({})
-    regex = r".*leviatan.*(?=\/manga)"
-    for doc in lst['manga-list']:
-        if 'leviatan' in doc['link']:
-            doc['link'] = re.sub(regex, base_url, doc['link'])
-        if 'leviatan' in doc['sources']:
-            source = doc['sources']['leviatan']
-            source['url'] = re.sub(
-                regex, base_url, source['url'])
-            source['latest_link'] = re.sub(
-                regex, base_url, source['url'])
-
-        if 'leviatan' in doc['sources']['any']['url']:
-            source = doc['sources']['any']
-            source['url'] = re.sub(
-                regex, base_url, source['url'])
-            source['latest_link'] = re.sub(
-                regex, base_url, source['latest_link'])
-        print(doc['sources']['any']['url'])
-    db['manga-list'].find_one_and_update(
-        {'user': '1649438609702'}, {"$set": lst})
-
-
 if __name__ == '__main__':
-    Reddit_scraper('test').get_todays_list(True)
+    Reddit_scraper('https://leviatanscans.com/atg/manga/').main(True)
