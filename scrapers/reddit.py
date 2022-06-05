@@ -193,12 +193,25 @@ class Reddit_scraper():
         except Exception as e:
             print(url, e, e.__class__)
 
-    def get_chapter_number(self, title):
-        matches = re.findall(r"\d+\.?\d*", title)
+    def get_chapter_number(self, submission):
+        chapter_regex = r".*(?<=chapter|episode)|.*(?<=ch|ep)"
+        title = submission.title
+        matches = re.findall(chapter_regex, title, re.IGNORECASE)
+        if 'webtoons' in submission.url:
+            match = re.search(r"(?<=episode_no=).*", submission.url)
+            if match:
+                return match.group()
         if matches:
-            match = matches[len(matches)-1]
-            res = re.sub(r"^0+", '', match)
-            return res
+            match = matches[0]
+            rep = title.replace(match, '')
+            pot_chapters = re.findall(r"(?<=[\W])\d*\.?\d+", rep)
+            pot_chapters = sorted(pot_chapters, key=float, reverse=True)
+            if not pot_chapters:
+                return None
+            chapter_num = pot_chapters[0]
+            chapter_num = re.sub(r"^0+", '', chapter_num)
+            chapter_num = re.sub(r"^\W+", '', chapter_num)
+            return chapter_num
 
     def main(self, first_run=False):
         return self.get_todays_list(first_run)
