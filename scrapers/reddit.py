@@ -67,17 +67,18 @@ class Reddit_scraper():
             return self.banned_urls(submission.selftext.lower(), title, chapter_num)
 
     def get_banned_domains(self, submission, title, chapter_num):
-        banned_domains = ['alpha', 'leviatan', 'reaper', 'luminous']
-        for name in banned_domains:
+        for name in self.banned_domains:
             if name in submission.title.lower() or name in submission.selftext.lower():
                 title = title.replace(' ', '-')
                 return self.banned_urls(name, title, chapter_num)
-        return None
+        # print(title, submission.url)
+        return submission.url
 
     def banned_urls(self, name, title, chapter_num):
         title = title.replace('\'', '')
         title = re.sub(r"–", '-', title)
         title = re.sub(r"-+", '-', title)
+        url = None
         if 'reaper' in name:
             url = f"https://reaperscans.com/series/{title}/chapter-{chapter_num}/"
         elif 'leviatan' in name:
