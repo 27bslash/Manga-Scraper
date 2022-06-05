@@ -44,10 +44,26 @@ class Reddit_scraper():
     def get_domain_from_self_post(self, submission, title, chapter_num):
         self_text_html = submission.selftext_html
         link_regex = r"(?<=href=\").*?(?=\")"
-        link = re.findall(link_regex, self_text_html)
-        if link:
-            return link[0]
+        links = re.findall(link_regex, self_text_html)
+        lnk = [lnk for lnk in links if 'cubari' not in lnk]
+        mirror = [lnk for lnk in links if 'cubari' in lnk]
+        # print(title, 'lnk', lnk)
+        if links is None:
+            return self.banned_urls(submission.selftext.lower(), title, chapter_num)
+        elif mirror:
+            if self.banned_urls(submission.title.lower(), title, chapter_num):
+                return self.banned_urls(submission.title.lower(), title, chapter_num)
+            else:
+                print('mirror', title, mirror[0])
+                return mirror[0]
+        elif len(lnk) == 1:
+            print('lnk 1', title, chapter_num, lnk[0])
+            return lnk[0]
+        elif len(lnk) > 1:
+            print('lnk 2', title, chapter_num, lnk[len(lnk)-1])
+            return lnk[len(lnk)-1]
         else:
+            print('else', title, chapter_num, lnk)
             return self.banned_urls(submission.selftext.lower(), title, chapter_num)
 
     def get_banned_domains(self, submission, title, chapter_num):
