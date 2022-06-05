@@ -81,21 +81,20 @@ class Source:
         amount = time_updated[1].replace('s', '')
         current_time = time.time()
         if amount == 'second':
-            return current_time - int(n)
+            current_time -= int(n)
         elif amount == 'minute':
-            return current_time - int(n) * 60
+            current_time -= int(n) * 60
         elif amount == 'hour':
-            return current_time - int(n) * 60 * 60
+            current_time -= int(n) * 60 * 60
         elif amount == 'day':
-            return current_time - int(n) * 60 * 60 * 24
+            current_time -= int(n) * 60 * 60 * 24
         elif amount == 'week':
-            return current_time - int(n) * 60 * 60 * 24 * 7
+            current_time -= int(n) * 60 * 60 * 24 * 7
         elif amount == 'month':
-            return current_time - int(n) * 60 * 60 * 24 * 30
+            current_time -= int(n) * 60 * 60 * 24 * 30
         elif amount == 'year':
-            return current_time - int(n) * 60 * 60 * 24 * 30 * 12
-        else:
-            return current_time
+            current_time -= int(n) * 60 * 60 * 24 * 30 * 12
+        return current_time - 3600
 
     def main(self):
         self.scrape(first_run=True)
