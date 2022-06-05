@@ -26,6 +26,8 @@ db = cluster['manga-scraper']
 class Reddit_scraper():
     def __init__(self, leviatan) -> None:
         self.base_leviatan_url = leviatan
+        self.banned_domains = [
+            'alpha', 'leviatan', 'reaper', 'luminous', 'flame', 'asura']
 
     def get_url(self, submission, title, chapter_num):
         if submission.selftext:
@@ -58,6 +60,8 @@ class Reddit_scraper():
 
     def banned_urls(self, name, title, chapter_num):
         title = title.replace('\'', '')
+        title = re.sub(r"–", '-', title)
+        title = re.sub(r"-+", '-', title)
         if 'reaper' in name:
             url = f"https://reaperscans.com/series/{title}/chapter-{chapter_num}/"
         elif 'leviatan' in name:
@@ -66,6 +70,10 @@ class Reddit_scraper():
             url = f"https://luminousscans.com/{title}-chapter-{chapter_num}/"
         elif 'alpha' in name:
             url = f"https://alpha-scans.org/{title}-chapter-{chapter_num}"
+        elif 'flame' in name:
+            url = f"https://flamescans.org/{title}-chapter-{chapter_num}"
+        elif 'asura' in name:
+            url = f"https://asurascans.com/{title}-chapter-{chapter_num}"
         return url
 
     def get_title(self, submission, testing=False):
@@ -108,6 +116,18 @@ class Reddit_scraper():
             scan_site = re.findall(scan_regex, url, re.IGNORECASE)[0]
             return scan_site.replace('-', '')
 
+    def get_banned_domain(self, scan_site):
+        if scan_site == 'alpha':
+            return 'alpha-scans.org'
+        elif scan_site == 'leviatan':
+            return 'leviatan-scans.com'
+        elif scan_site == 'reaper':
+            return 'reaperscans.com'
+        elif scan_site == 'luminous':
+            return 'luminousscans.com'
+        elif scan_site == 'flame':
+            return 'flamescans.org'
+        return
     def get_todays_list(self, first_run=False):
         reddit = praw.Reddit(
             client_id="wEBZeE2Bh10Ki1kCrchhKQ",
