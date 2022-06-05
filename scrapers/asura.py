@@ -25,7 +25,7 @@ class Asura(Source):
         if rq.status_code == 200:
             soup = BeautifulSoup(rq.text, 'html.parser')
         else:
-            print('e', self.site, rq.status_code)
+            print(self.site, rq.status_code, 'broken')
             return []
         latest_updates = soup.find_all('div', class_='luf')
         lst = []
@@ -43,6 +43,10 @@ class Asura(Source):
                 d['link'] = link
                 d['time_updated'] = super().convert_time(time_updated)
                 d['scansite'] = self.site
+                if self.site == 'alphascans':
+                    d['domain'] = 'https://alpha-scans.org'
+                else:
+                    d['domain'] = 'https://luminousscans.com'
                 lst.append(d)
             except Exception as e:
                 print(e, self.site, update)
