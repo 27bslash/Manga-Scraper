@@ -1,22 +1,13 @@
-import datetime
-import os
 import re
-import sys
 import time
-from pprint import pprint
+import traceback
 
-import praw
-import pymongo
-import requests
-from apscheduler.schedulers.background import BlockingScheduler
-from dotenv import load_dotenv
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 
-
-load_dotenv()
-connection = os.environ['DB_CONNECTION']
-cluster = pymongo.MongoClient(
-    f"{connection}?retryWrites=true&w=majority")
-db = cluster['manga-scraper']
+from db import db
 
 
 class Source:
@@ -29,14 +20,10 @@ class Source:
             manga['latest'] = item['latest']
             if 'link' not in manga:
                 manga['link'] = item['link']
-            manga['sources'] = self.update_sources(manga,
-                                                   item['scansite'], item)
             manga['domain'] = item['domain']
             manga['test'] = True
         else:
             manga['read'] = True
-            manga['sources'] = self.update_sources(manga,
-                                                   item['scansite'], item)
         return manga
 
     def update_sources(self, curr, scansite,  item):
@@ -49,7 +36,7 @@ class Source:
             db_entry = {'sources': {}}
         if 'sources' not in db_entry:
             db_entry['sources'] = {}
-        if'any' not in db_entry['sources']:
+        if 'any' not in db_entry['sources']:
             db_entry['sources']['any'] = source_string
         if db_entry['sources']['any']['latest'] < item['latest']:
             db_entry['sources']['any'] = source_string
@@ -73,9 +60,10 @@ class Source:
         if match:
             return match.group().strip()
         else:
-            return chapter.replace('Chapter ', '').strip()
+            return re.sub(r"[^\d\.]+", '', chapter.replace('Chapter ', '').strip())
 
     def convert_time(self, time_updated):
+        # space between dates nov 23 2022 and current date
         time_updated = time_updated.split(' ')
         n = time_updated[0]
         amount = time_updated[1].replace('s', '')
@@ -94,20 +82,33 @@ class Source:
             current_time -= int(n) * 60 * 60 * 24 * 30
         elif amount == 'year':
             current_time -= int(n) * 60 * 60 * 24 * 30 * 12
-        return current_time - 3600
+        return current_time
 
     def main(self):
-        self.scrape(first_run=True)
+        # self.scrape(first_run=True)
         pass
+
+    def sel(self, url) -> str | None:
+        print(url)
+        try:
+            chrome_options = Options()
+            chrome_options.add_argument("--window-position=2000,0")
+            driver = webdriver.Chrome(service=Service(
+                ChromeDriverManager().install()), options=chrome_options)
+            print('minimise window')
+            driver.minimize_window()
+            print('url get', url)
+            driver.get(url)
+            return driver.page_source
+        except Exception as e:
+            print(traceback.format_exc())
+            return None
 
     def __call__(self):
         self.main()
-
-
-
+        pass
 
 
 if __name__ == '__main__':
-    scraper = Source()
-    scraper()
+    Source().sel('https://www.google.com/')
     pass

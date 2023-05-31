@@ -1,33 +1,30 @@
-import datetime
 import os
 import re
 import time
 import traceback
-from thefuzz import fuzz
+from pprint import pprint
+from turtle import update
 
-import pymongo
 import requests
 from apscheduler.schedulers.background import BlockingScheduler
-from dotenv import load_dotenv
+from thefuzz import fuzz
 
 from main import Source
 from scrapers.asura import Asura
+from scrapers.flame import Flame
 from scrapers.leviatan import Leviatan
 from scrapers.reaper import Reaper
 from scrapers.reddit import Reddit_scraper
 from scrapers.tcbscans import TcbScraper
-
-load_dotenv()
-connection = os.environ['DB_CONNECTION']
-cluster = pymongo.MongoClient(
-    f"{connection}?retryWrites=true&w=majority")
-db = cluster['manga-scraper']
+from datetime import datetime
+from db import db
 
 
 class Scraper(Source):
-    def __init__(self, leviatan):
+    def __init__(self, leviatan, testing):
         self.base_leviatan_url = leviatan
         self.total_manga = []
+        self.testing = testing
 
     def scrape(self, total_manga):
         self.total_manga = total_manga
@@ -38,23 +35,27 @@ class Scraper(Source):
         print(len(total_manga))
         # pprint(total_manga)
         length = len(total_manga)
-
+        scans = self.update_total_manga()
         self.update_users()
-        
 
         if curr_urls:
             [urls.add(url) for url in curr_urls['urls']]
+        scans = urls.union(scans)
         # pprint(manga_list)
-        db['scans'].find_one_and_update(
-            {}, {'$set': {'urls': list(urls)}}, upsert=True)
+        if not self.testing:
+            db['scans'].find_one_and_update(
+                {}, {'$set': {'urls': list(urls)}}, upsert=True)
 
     def update_users(self):
         # self.test_search()
         # return
+        print('update users')
         for user in db['manga-list'].find({}):
             user_list = user['manga-list']
             user_id = user['user']
-            self.update_user_list(user_id, user_list)
+            # print('u_id', user_id)
+            if user_list:
+                self.update_user_list(user_id, user_list)
 
     def test_search(self):
         for item in self.total_manga:
@@ -62,46 +63,102 @@ class Scraper(Source):
                 self.fuzzy_search(item['title'], item2['title'])
 
     def update_user_list(self, user_id, user_list):
+        if not self.total_manga:
+            import json
+            with open('new_list.json', 'r') as f:
+                self.total_manga = json.load(f)
         for item in self.total_manga[::-1]:
-            db['all_manga'].find_one_and_update(
-                {'title': item['title']}, {"$set": item}, upsert=True)
             for manga in user_list:
-                search_res = self.fuzzy_search(item['title'], manga['title'])
-                if search_res > 80:
+                search_res = self.fuzzy_search(manga['title'], item['title'])
+                if search_res > 82:
+                    # if 'berserk' in item['title']:
+                    #     print('debvug')
                     # sys.stdout.write('\x1b[2K')
+                    # if 'novel' in item['title']:
+                    #     print('debvug')
                     # print(
                     #     f" \r{length - i}/{length} {item['title']} {item['latest']} {item['scansite']}", end='')
-                    print('\nin', user_id, item['title'],
-                          item['latest'], item['scansite'], search_res)
-                    # pprint(manga)
                     manga['latest'] = item['sources']['any']['latest']
+                    # if 'world-after' in item['title']:
+                    #     print('debug')
                     manga['sources'] = self.update_user_sources(
                         manga['sources'], item['sources'])
-                    # if 'tower' in item['title']:
-                    #     # pprint(manga)
-                    #     pass
-
-                    # if 'great' in item['title']:
-                    #     print('debug')
-                    manga['read'] = manga['latest'] <= manga['chapter']
+                    current_source = manga['current_source']
+                    curr_source = 'any' if current_source not in manga['sources'] else current_source
+                    # print(manga['title'], user_id, manga)
+                    manga['read'] = float(
+                        manga['sources'][curr_source]['latest']) <= float(manga['chapter'])
+                    if not manga['read']:
+                        print(
+                            f"in {user_id} {item['title']} {manga['title']} {manga['chapter']}/{item['latest']} {item['scansite']} {search_res} 'read: '{manga['read']}")
+                        pass
                     break
-        db['manga-list'].find_one_and_update(
-            {'user': user_id}, {"$set": {f'manga-list': user_list}})
+        if not self.testing:
+            db['manga-list'].find_one_and_update(
+                {'user': user_id}, {"$set": {f'manga-list': user_list}})
+            pass
 
-    def update_total_manga(self, total_manga):
-        for i, item in enumerate(total_manga[::-1]):
-            # print(item['link'])
-            print(f" \r{length - i}/{length}", flush=True, end='')
-            # print('\nin', item['title'],
-            #               item['latest'], item['scansite'])
-            # self.update_user_list(item['user'], item)
-            db['all_manga'].find_one_and_update(
-                {'title': item['title']}, {"$set": item}, upsert=True)
-        pass
+    def format_title(self, title):
+        t1 = re.sub(r'remake', '', title)
+        t1 = re.sub(r'\W+', '', t1)
+        return t1
+
+    def update_total_manga(self):
+        scans = set()
+        all_manga = db['all_manga'].find()
+        if not self.total_manga:
+            import json
+            with open('new_list.json', 'r') as f:
+                self.total_manga = json.load(f)
+        for i, item in enumerate(self.total_manga[::-1]):
+            scans.add(item['domain'])
+            item['latest_sort'] = float(item['latest'])
+            req = db['all_manga'].find_one({'title': item['title']})
+            updated = False
+            print(
+                f"\r {len(self.total_manga) - i}/{len(self.total_manga)}", end='\x1b[1K')
+            if req and not self.testing:
+                db['all_manga'].find_one_and_update(
+                    {'title': item['title']}, {"$set": item})
+                updated = True
+            elif not updated and req is None:
+                for m in all_manga:
+                    ratio = fuzz.ratio(item['title'], m['title'])
+                    if ratio > 80 and not self.testing:
+                        db['all_manga'].find_one_and_update(
+                            {'title': m['title']}, {"$set": item}, upsert=True)
+                        updated = True
+                        break
+            if not updated and not self.testing:
+                db['all_manga'].find_one_and_update({'title': item['title']}, {
+                                                    "$set": item}, upsert=True)
+        return scans
+
+    def test_totle_manga(self):
+        import json
+        with open('new_list.json', 'r') as f:
+            total_manga = json.load(f)
+        for item in total_manga[::-1]:
+            item['latest_sort'] = float(item['latest'])
+            req = db['all_manga'].find_one({'title': item['title']})
+            updated = False
+            if req:
+                db['all_manga'].find_one_and_update(
+                    {'title': item['title']}, {"$set": item})
+                updated = True
+            elif not updated and req is None:
+                for m in db['all_manga'].find():
+                    ratio = fuzz.ratio(item['title'], m['title'])
+                    if ratio > 80:
+                        db['all_manga'].find_one_and_update(
+                            {'title': m['title']}, {"$set": item}, upsert=True)
+                        updated = True
+            if not updated:
+                db['all_manga'].find_one_and_update({'title': item['title']}, {
+                                                    "$set": item}, upsert=True)
 
     def fuzzy_search(self, title, title2):
-        fu = fuzz.ratio(title,
-                        title2)
+        fu = fuzz.ratio(self.format_title(title), self.format_title(title2))
         return fu
 
     def text_similarity(self, title, title2):
@@ -128,8 +185,8 @@ class Scraper(Source):
                         source_list[source]['url'] = curr[source]['url']
                     if float(source_list[source]['latest']) < float(curr[source]['latest']):
                         print(
-                            f"{source_list[source]['latest']} < {curr[source]['latest']}")
-                        source_list[source]['latest'] = curr[source]['latest']
+                            f"{source_list[source]['latest']} < {curr[source]['latest']}", curr[source]['latest_link'])
+                        # source_list[source]['latest'] = curr[source]['latest']
             except Exception as e:
                 print(traceback.format_exc(),
                       source_list[source]['latest_link'], curr[source])
@@ -150,72 +207,100 @@ class Scraper(Source):
     def update_sources(self, lst):
         # print('l', lst)
         # takes a list of dupes and makes a list of sources
-        db_entry = db['all_manga'].find({'title': lst[0]['title']})
-        db_res = [entry for entry in db_entry]
-        if len(db_res) > 0:
-            lst += db_res
-        # pprint(lst)
-        latest_sort = sorted(lst, key=lambda k: (
-            k['latest'], -k['time_updated']), reverse=True)
-        # print(latest_sort)
-        d = {}
-        # pprint(latest_sort)
-        # print('latest', latest_sort[0])
-        source_string = {'latest': latest_sort[0]['latest'],
-                         'latest_link': latest_sort[0]['link'], 'time_updated': latest_sort[0]['time_updated']}
-        d['any'] = source_string
-        if d['any']['latest'] == '133':
-            print(d['any'])
-        for item in latest_sort[::-1]:
-            source_string = {'latest': item['latest'],
-                             'latest_link': item['link'], 'time_updated': item['time_updated']}
-            try:
-                # pprint(item)
-                d[item['scansite']] = source_string
-            except KeyError:
-                print('e', item)
-        return d
+        db_entry = db['all_manga'].find_one(
+            {'title': lst[0]['title']})
+        if db_entry:
+            for key in db_entry['sources']:
+                if key != 'any':
+                    db_entry['sources'][key]['scansite'] = key
+                    try:
+                        new_source = [source
+                                      for source in lst if source['scansite'] == key]
+                        if new_source:
+                            db_entry['sources'][key]['latest'] = new_source[0]['latest']
+                            db_entry['sources'][key]['latest_link'] = new_source[0]['latest_link']
+                            db_entry['sources'][key]['time_updated'] = new_source[0]['time_updated']
+                        lst.append(db_entry['sources'][key])
+                    except Exception as e:
+                        print(lst, traceback.format_exc())
+        try:
+            latest_sort = sorted(lst, key=lambda k: (
+                float(k['latest']), -k['time_updated']), reverse=True)
+            # print(latest_sort)
+            d = {}
+            # pprint(latest_sort)
+            # print('latest', latest_sort[0])
+
+            source_string = {'latest': latest_sort[0]['latest'],
+                             'latest_link': latest_sort[0]['latest_link'], 'time_updated': latest_sort[0]['time_updated']}
+            d['any'] = source_string
+
+            for item in latest_sort[::-1]:
+                source_string = {'latest': item['latest'],
+                                 'latest_link':  item['latest_link'], 'time_updated': item['time_updated']}
+                try:
+                    # pprint(item)
+                    d[item['scansite']] = source_string
+                except KeyError:
+                    print('e', item)
+            return d
+        except Exception as e:
+            print(traceback.format_exc())
 
     def combine_data(self, first_run=False):
         total_manga = Reddit_scraper(self.base_leviatan_url).main(first_run)
-        now = datetime.datetime.now()
         all_manga = total_manga
-        t = now.minute - 30
-        if t <= 5 and t >= 0 or first_run:
-            print('leviatan')
-            alpha = Asura('alphascans')()
-            luminous = Asura('luminousscans')()
-            leviatan = Leviatan()()
-            reaper = Reaper()()
-            tcb = TcbScraper()()
-            all_manga += alpha + luminous + leviatan + reaper+tcb
-            # all_manga += leviatan
-            # all_manga += tcb
+        print('leviatan')
+        asura = Asura('asurascans').main()
+        alpha = Asura('alphascans').main()
+        cosmic = Asura('cosmicscans').main()
+        luminous = Asura('luminousscans').main()
+        leviatan = Leviatan().scrape()
+        reaper = Reaper().scrape()
+        tcb = TcbScraper().scrape()
+        flame = Flame().scrape()
+        all_manga += asura + alpha + luminous + leviatan + reaper+tcb+flame+cosmic
+
+        # all_manga += leviatan
+        # all_manga = tcb
+
         # pprint(all_manga)
         all_manga = sorted(
             all_manga, key=lambda k: k['time_updated'], reverse=True)
         return all_manga
 
     def main(self, first_run=False):
-        srt = time.perf_counter()
-        total_manga = self.combine_data(first_run)
-        # print(len(total_manga))
-        total_manga = self.combine_series_by_title(total_manga)
-        # pprint(total_mang/a)
-        print(len(total_manga))
-        new_list = []
-        for manga in total_manga:
-            d = {}
-            d = manga[0]
-            # print(manga)
-            d['sources'] = self.update_sources(manga)
-            # print(d['sources'])
-            # pprint(d)
-            new_list.append(d)
-            # break
-        self.scrape(new_list)
-        print('\ntime taken', time.perf_counter() - srt)
-        return new_list
+        import json
+        os.system('cls')
+        if self.testing:
+            with open('pre_processed.json', 'r', ) as f:
+                data = json.load(f)
+        else:
+            total_manga = self.combine_data(first_run)
+            total_manga = self.combine_series_by_title(total_manga)
+            data = total_manga
+            with open('pre_processed.json', 'w') as f:
+                json.dump(data, f)
+            print(len(total_manga))
+        try:
+            srt = time.perf_counter()
+            new_list = []
+            for manga in data:
+                d = {}
+                d = manga[0]
+                # print(d['title'])
+                d['sources'] = self.update_sources(manga)
+                new_list.append(d)
+            with open('new_list.json', 'w') as f:
+                json.dump(new_list, f)
+            self.scrape(new_list)
+            print('\ntime taken', time.perf_counter() - srt)
+            return new_list
+        except Exception as e:
+            print(traceback.format_exc())
+            with open('err.txt', 'w') as f:
+                f.write(str(datetime.now()))
+                f.write(traceback.format_exc())
 
 
 def get_leviatan_url():
@@ -225,44 +310,61 @@ def get_leviatan_url():
 
 def change_leviatan_url(base_url):
     # base_url = 'https://leviatanscans.com/omg'
-    lst = db['manga-list'].find_one({})
+    lst = db['manga-list'].find({})
     regex = r".*leviatan.*(?=\/manga)"
-    for doc in lst['manga-list']:
-        if 'leviatan' in doc['link']:
-            doc['link'] = re.sub(regex, base_url, doc['link'])
-        if 'leviatan' in doc['sources']:
-            source = doc['sources']['leviatan']
-            source['url'] = re.sub(
-                regex, base_url, source['url'])
-            source['latest_link'] = re.sub(
-                regex, base_url, source['url'])
+    for entry in lst:
+        user = entry['user']
+        manga_list = entry['manga-list']
+        for doc in manga_list:
+            if 'link' in doc:
+                doc['link'] = re.sub(regex, base_url, doc['link'])
+            for source in doc['sources']:
+                if 'link' in source:
+                    source['link'] = re.sub(regex, base_url, source['link'])
+                if 'latest_link' in source:
+                    source['latest_link'] = re.sub(
+                        regex, base_url, source['latest_link'])
+                if 'url' in source:
+                    source['url'] = re.sub(regex, base_url, source['url'])
+        db['manga-list'].find_one_and_update(
+            {'user': user}, {"$set": {'manga-list':  manga_list}})
 
-        if 'leviatan' in doc['sources']['any']['url']:
-            source = doc['sources']['any']
-            source['url'] = re.sub(
-                regex, base_url, source['url'])
-            source['latest_link'] = re.sub(
-                regex, base_url, source['latest_link'])
-        # print(doc['sources']['any']['url'])
-    db['manga-list'].find_one_and_update(
-        {'user': '1649438609702'}, {"$set": lst})
+
+def net_test(retries):
+    for i in range(retries):
+        try:
+            req = requests.get('https://www.google.co.uk/')
+            if req.status_code == 200:
+                print('connected to the internet')
+                return True
+            else:
+                time.sleep(1)
+                continue
+        except Exception as e:
+            time.sleep(1)
+    return False
 
 
 # scrape(None, False)
 if __name__ == '__main__':
     first_run = True
-    leviatan_url = 'https://leviatanscans.com/atg'
-    if first_run and 1 == 2:
-        leviatan_url = get_leviatan_url()
-        change_leviatan_url(base_url=leviatan_url)
-    scraper = Scraper(leviatan_url)
-    scraper.main(first_run)
-    scheduler = BlockingScheduler()
-    try:
-        scheduler.add_job(scraper.main, 'cron', timezone='Europe/London',
-                          start_date=datetime.datetime.now(), id='scrape',
-                          hour='*', minute='*/5', day_of_week='mon-sun')
-        # scheduler.start()
-    except Exception as e:
-        print(e, e.__class__)
-        scheduler.shutdown()
+    testing = False
+    leviatan_url = 'https://en.leviatanscans.com/home'
+    # Scraper(leviatan_url).update_total_manga()
+    # Scraper(leviatan_url).main(first_run=first_run)
+    if net_test(500):
+        if first_run and not testing:
+            leviatan_url = get_leviatan_url()
+            change_leviatan_url(base_url=leviatan_url)
+        scraper = Scraper(leviatan_url, testing)
+        scraper.main(first_run=first_run)
+        time.sleep(1800)
+        scheduler = BlockingScheduler()
+        try:
+            scheduler.add_job(scraper.main, 'cron', timezone='Europe/London',
+                              start_date=datetime.now(), id='scrape',
+                              hour='*', minute='*/30', day_of_week='mon-sun')
+            scheduler.start()
+        except Exception as e:
+            print(e, e.__class__)
+            scheduler.shutdown()
