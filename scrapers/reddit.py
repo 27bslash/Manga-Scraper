@@ -165,23 +165,16 @@ class Reddit_scraper():
         return
 
     def get_todays_list(self, first_run=False):
-        reddit = praw.Reddit(
-            client_id="wEBZeE2Bh10Ki1kCrchhKQ",
-            client_secret="XBQQVa1bfXj1I2vqzAgncn4B3yjUUg",
-            user_agent="manga scraper by u/27bslash",
-            check_for_updates=True,
-            comment_kind="t1",
-            message_kind="t4",
-            redditor_kind="t2",
-            submission_kind="t3",
-            subreddit_kind="t5",
-            trophy_kind="t6",
-            oauth_url="https://oauth.reddit.com",
-            ratelimit_seconds=5,
-            reddit_url="https://www.reddit.com",
-            short_url="https://redd.it",
-            timeout=16
-        )
+        """
+         reads praw.ini file
+         required fields 
+         client_id
+         client_secret
+         user_agent
+        """
+
+        reddit = praw.Reddit('MANGA')
+
         manga_list = []
         submissions = []
         limit = 50
@@ -204,6 +197,8 @@ class Reddit_scraper():
             chapter_num = None
             url = None
             domain = None
+            if re.search(r"\braws?\b", submission.title.lower()):
+                continue
             if '@' in submission.title:
                 # twitter manga filter
                 continue
@@ -313,7 +308,7 @@ class Reddit_scraper():
             d['scansite'] = scan_site
             # print(d['title'], d['latest'], d['latest_link'])
             # d['sources'] = super().update_sources(d, scan_site, d)
-            print(d['title'], d['latest'])
+            # print(d['title'], d['latest'])
             manga_list.append(d)
         return manga_list
 

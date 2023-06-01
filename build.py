@@ -44,8 +44,11 @@ def shrtcut():
 
 
 if __name__ == '__main__':
-    create_exe()
-    shrtcut()
+    try:
+        create_exe()
+        shrtcut()
+    except:
+        pass
     # move_to_startup()
     # print('done')
     # sys.exit(0)
