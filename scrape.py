@@ -67,9 +67,10 @@ class Scraper(Source):
             import json
             with open('new_list.json', 'r') as f:
                 self.total_manga = json.load(f)
-        for item in self.total_manga[::-1]:
-            for manga in user_list:
-                search_res = self.fuzzy_search(manga['title'], item['title'])
+        for total_manga_dict in self.total_manga[::-1]:
+            for user_manga in user_list:
+                search_res = self.fuzzy_search(
+                    user_manga['title'], total_manga_dict['title'])
                 if search_res > 82:
                     # if 'berserk' in item['title']:
                     #     print('debvug')
@@ -78,19 +79,20 @@ class Scraper(Source):
                     #     print('debvug')
                     # print(
                     #     f" \r{length - i}/{length} {item['title']} {item['latest']} {item['scansite']}", end='')
-                    manga['latest'] = item['sources']['any']['latest']
+                    user_manga['latest'] = total_manga_dict['sources']['any']['latest']
                     # if 'world-after' in item['title']:
                     #     print('debug')
-                    manga['sources'] = self.update_user_sources(
-                        manga['sources'], item['sources'])
-                    current_source = manga['current_source']
-                    curr_source = 'any' if current_source not in manga['sources'] else current_source
+                    user_manga['sources'] = self.update_user_sources(
+                        user_manga['sources'], total_manga_dict['sources'])
+                    current_source = user_manga['current_source']
+                    curr_source = 'any' if current_source not in user_manga[
+                        'sources'] else current_source
                     # print(manga['title'], user_id, manga)
-                    manga['read'] = float(
-                        manga['sources'][curr_source]['latest']) <= float(manga['chapter'])
-                    if not manga['read']:
+                    user_manga['read'] = float(
+                        user_manga['sources'][curr_source]['latest']) <= float(user_manga['chapter'])
+                    if not user_manga['read']:
                         print(
-                            f"in {user_id} {item['title']} {manga['title']} {manga['chapter']}/{item['latest']} {item['scansite']} {search_res} 'read: '{manga['read']}")
+                            f"in {user_id} {total_manga_dict['title']} {user_manga['title']} {user_manga['chapter']}/{total_manga_dict['latest']} {total_manga_dict['scansite']} {search_res} 'read: '{user_manga['read']}")
                         pass
                     break
         if not self.testing:
@@ -175,22 +177,22 @@ class Scraper(Source):
         ret = ret/len(ite)
         return ret <= 0.25
 
-    def update_user_sources(self, curr: dict, source_list: dict) -> dict:
+    def update_user_sources(self, user_manga: dict, total_manga: dict) -> dict:
         d = {}
-        combined_sources = [source_list, curr]
-        for source in source_list:
+        combined_sources = [total_manga, user_manga]
+        for source in total_manga:
             try:
-                if source in curr:
-                    if 'url' in curr[source]:
-                        source_list[source]['url'] = curr[source]['url']
-                    if float(source_list[source]['latest']) < float(curr[source]['latest']):
+                if source in user_manga:
+                    if 'url' in user_manga[source]:
+                        total_manga[source]['url'] = user_manga[source]['url']
+                    if float(total_manga[source]['latest']) < float(user_manga[source]['latest']):
                         print(
-                            f"{source_list[source]['latest']} < {curr[source]['latest']}", curr[source]['latest_link'])
+                            f"{total_manga[source]['latest']} < {user_manga[source]['latest']}", user_manga[source]['latest_link'])
                         # source_list[source]['latest'] = curr[source]['latest']
             except Exception as e:
                 print(traceback.format_exc(),
-                      source_list[source]['latest_link'], curr[source])
-        return source_list
+                      total_manga[source]['latest_link'], user_manga[source])
+        return total_manga
 
     def combine_series_by_title(self, lst):
         ret = []
