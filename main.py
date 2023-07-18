@@ -8,6 +8,7 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 from db import db
+import undetected_chromedriver as uc
 
 
 class Source:
@@ -90,18 +91,20 @@ class Source:
 
     def sel(self, url) -> str | None:
         print(url)
+        chrome_options = uc.ChromeOptions()
+        chrome_options.add_argument("--window-position=2000,0")
+        driver = uc.Chrome(use_subprocess=True, options=chrome_options)
         try:
-            chrome_options = Options()
-            chrome_options.add_argument("--window-position=2000,0")
-            driver = webdriver.Chrome(service=Service(
-                ChromeDriverManager().install()), options=chrome_options)
-            print('minimise window')
             driver.minimize_window()
             print('url get', url)
             driver.get(url)
-            return driver.page_source
+            time.sleep(5)
+            html = driver.page_source
+            driver.quit()
+            return html
         except Exception as e:
             print(traceback.format_exc())
+            driver.quit()
             return None
 
     def __call__(self):
@@ -110,5 +113,5 @@ class Source:
 
 
 if __name__ == '__main__':
-    Source().sel('https://www.google.com/')
+    Source().sel('https://reaperscans.com/')
     pass
