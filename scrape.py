@@ -282,25 +282,25 @@ class Scraper(Source):
             with open('pre_processed.json', 'w') as f:
                 json.dump(data, f)
             print(len(total_manga))
-        try:
-            srt = time.perf_counter()
-            new_list = []
-            for manga in data:
+        srt = time.perf_counter()
+        new_list = []
+        for manga in data:
+            try:
                 d = {}
                 d = manga[0]
                 # print(d['title'])
-                d['sources'] = self.update_sources(manga)
+                d['sources'] = self.update_manga_sources(manga)
                 new_list.append(d)
-            with open('new_list.json', 'w') as f:
-                json.dump(new_list, f)
-            self.scrape(new_list)
-            print('\ntime taken', time.perf_counter() - srt)
-            return new_list
-        except Exception as e:
-            print(traceback.format_exc())
-            with open('err.txt', 'w') as f:
-                f.write(str(datetime.now()))
-                f.write(traceback.format_exc())
+            except Exception as e:
+                print(traceback.format_exc())
+                with open('err.txt', 'w') as f:
+                    f.write(str(datetime.now()))
+                    f.write(traceback.format_exc())
+        with open('new_list.json', 'w') as f:
+            json.dump(new_list, f)
+        self.scrape(new_list)
+        print('\ntime taken', time.perf_counter() - srt)
+        return new_list
 
 
 def get_leviatan_url():
