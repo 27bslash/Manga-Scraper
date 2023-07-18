@@ -204,49 +204,93 @@ class Scraper(Source):
             seen.add(title)
         return ret
 
-    def update_sources(self, lst):
+    def combine_manga_sources(self, source_list):
+        sorted_data = sorted(
+            source_list, key=lambda k: k['latest'])
+        combined_sources = sorted_data[0]['sources'] | sorted_data[1]['sources']
+        return combined_sources
+
+    def update_manga_sources(self, lst):
         # print('l', lst)
         # takes a list of dupes and makes a list of sources
-        db_entry = db['all_manga'].find_one(
-            {'title': lst[0]['title']})
-        if db_entry:
-            for key in db_entry['sources']:
-                if key != 'any':
-                    db_entry['sources'][key]['scansite'] = key
+        db_entries = self.atlas_search(
+            lst[0]['title'])
+        if len(db_entries) > 1:
+            combined_sources = self.combine_manga_sources(db_entries)
+            for doc in db_entries:
+                doc['sources'] = combined_sources
+        # db_entry = db['all_manga'].find_one(
+        #     {'title': lst[0]['title']})
+        for db_entry in db_entries:
+            if 'sources' in db_entry and db_entry['sources']:
+                for source_key in db_entry['sources']:
+                    if source_key == 'any':
+                        continue
+                    db_entry['sources'][source_key]['scansite'] = source_key
                     try:
-                        new_source = [source
-                                      for source in lst if source['scansite'] == key]
-                        if new_source:
-                            db_entry['sources'][key]['latest'] = new_source[0]['latest']
-                            db_entry['sources'][key]['latest_link'] = new_source[0]['latest_link']
-                            db_entry['sources'][key]['time_updated'] = new_source[0]['time_updated']
-                        lst.append(db_entry['sources'][key])
+                        updated_source = [source
+                                          for source in lst if source['scansite'] == source_key]
+                        if updated_source:
+                            db_entry['sources'][source_key]['latest'] = updated_source[0]['latest']
+                            db_entry['sources'][source_key]['latest_link'] = updated_source[0]['latest_link']
+                            db_entry['sources'][source_key]['time_updated'] = updated_source[0]['time_updated']
+                        lst.append(db_entry['sources'][source_key])
                     except Exception as e:
                         print(lst, traceback.format_exc())
-        try:
-            latest_sort = sorted(lst, key=lambda k: (
-                float(k['latest']), -k['time_updated']), reverse=True)
-            # print(latest_sort)
-            d = {}
-            # pprint(latest_sort)
-            # print('latest', latest_sort[0])
+            try:
+                latest_sort = sorted(lst, key=lambda k: (
+                    float(k['latest']), -k['time_updated']), reverse=True)
+                # print(latest_sort)
+                updated_sources = {}
+                # pprint(latest_sort)
+                # print('latest', latest_sort[0])
 
-            source_string = {'latest': latest_sort[0]['latest'],
-                             'latest_link': latest_sort[0]['latest_link'], 'time_updated': latest_sort[0]['time_updated']}
-            d['any'] = source_string
+                source_string = {'latest': latest_sort[0]['latest'],
+                                 'latest_link': latest_sort[0]['latest_link'], 'time_updated': latest_sort[0]['time_updated']}
+                updated_sources['any'] = source_string
 
-            for item in latest_sort[::-1]:
-                source_string = {'latest': item['latest'],
-                                 'latest_link':  item['latest_link'], 'time_updated': item['time_updated']}
-                try:
-                    # pprint(item)
-                    d[item['scansite']] = source_string
-                except KeyError:
-                    print('e', item)
-            return d
-        except Exception as e:
-            print(traceback.format_exc())
+                for item in latest_sort[::-1]:
+                    source_string = {'latest': item['latest'],
+                                     'latest_link':  item['latest_link'], 'time_updated': item['time_updated']}
+                    try:
+                        # pprint(item)
+                        updated_sources[item['scansite']] = source_string
+                    except KeyError:
+                        print('e', item)
+                return updated_sources
+            except Exception as e:
+                print(traceback.format_exc())
 
+    def atlas_search(self, title):
+        search_query = {'$search': {
+            'index': 'default',
+            'text': {
+                'query': title,
+                'path': 'title',
+                # 'fuzzy': {
+                #     'maxEdits': 2,
+                #     'maxExpansions': 100
+                # }
+            },
+        }}
+        query = [
+            search_query,
+            {'$limit': 3},
+            {"$project": {
+                'score': {'$meta': "searchScore"},
+                "_id": 0,
+                'title': 1,
+                'latest': 1,
+                'sources': 1,
+                'latest_sort': 1,
+                'scansite': 1
+            }}
+        ]
+        res = db['all_manga'].aggregate(query)
+        fuzzysearch = list(res)
+        fuzzysearch = [doc for doc in fuzzysearch if doc['score']
+                       >= fuzzysearch[0]['score'] * 0.7 and abs(float(doc['latest'])-float(fuzzysearch[0]['latest'])) < 5]
+        return fuzzysearch
     def combine_data(self, first_run=False):
         total_manga = Reddit_scraper(self.base_leviatan_url).main(first_run)
         all_manga = total_manga
