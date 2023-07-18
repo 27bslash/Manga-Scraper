@@ -199,8 +199,14 @@ class Scraper(Source):
         for item in lst:
             title = item['title']
             if title not in seen:
-                l = [x for x in lst if self.text_similarity(x['title'], title)]
-                ret.append(l)
+                potential_series = [x for x in lst if self.text_similarity(
+                    x['title'], title)]
+                series = potential_series
+                if len(potential_series) > 1:
+                    series = [x for x in series if x['type'] != 'reddit']
+                    if not series:
+                        series = potential_series
+                ret.append(series)
             seen.add(title)
         return ret
 
