@@ -60,6 +60,7 @@ class Asura(Source):
                 d['time_updated'] = super().convert_time(time_updated)
                 d['scansite'] = self.site
                 d['domain'] = url
+                d['type'] = self.site
                 # print(d['title'], d['latest'])
                 lst.append(d)
                 if debug:

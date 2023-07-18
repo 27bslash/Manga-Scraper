@@ -35,7 +35,9 @@ class Leviatan(Source):
             return []
         if req.status_code != 200:
             print('leviatan', req.status_code, 'broken')
-            return []
+            text = super().sel('https://leviatanscans.com')
+            if not text:
+                return []
         else:
             text = req.text
 
