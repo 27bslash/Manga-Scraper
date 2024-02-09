@@ -12,48 +12,58 @@ import undetected_chromedriver as uc
 
 
 class Source:
-    db = db
+    def __init__(self, driver) -> None:
+        self.driver = driver
 
     def update_manga_dict(self, manga, item):
-        if item['latest'] > manga['chapter']:
-            manga['read'] = False
+        if item["latest"] > manga["chapter"]:
+            manga["read"] = False
             # this will run every time make it update only once
-            manga['latest'] = item['latest']
-            if 'link' not in manga:
-                manga['link'] = item['link']
-            manga['domain'] = item['domain']
-            manga['test'] = True
+            manga["latest"] = item["latest"]
+            if "link" not in manga:
+                manga["link"] = item["link"]
+            manga["domain"] = item["domain"]
+            manga["test"] = True
         else:
-            manga['read'] = True
+            manga["read"] = True
         return manga
 
-    def update_sources(self, curr, scansite,  item):
-        db_entry = db['all_manga'].find_one({'title': item['title']})
+    def update_sources(self, curr, scansite, item):
+        db_entry = db["all_manga"].find_one({"title": item["title"]})
         # if 'sss' in item['title']:
         # print(scansite, db_entry['sources'])
         source_string = {
-            'url': curr['link'], 'latest': item['latest'], 'latest_link': item['link'], 'time_updated': item['time_updated']}
+            "url": curr["link"],
+            "latest": item["latest"],
+            "latest_link": item["link"],
+            "time_updated": item["time_updated"],
+        }
         if not db_entry:
-            db_entry = {'sources': {}}
-        if 'sources' not in db_entry:
-            db_entry['sources'] = {}
-        if 'any' not in db_entry['sources']:
-            db_entry['sources']['any'] = source_string
-        if db_entry['sources']['any']['latest'] < item['latest']:
-            db_entry['sources']['any'] = source_string
-        elif db_entry['sources']['any']['time_updated'] >= item['time_updated']:
+            db_entry = {"sources": {}}
+        if "sources" not in db_entry:
+            db_entry["sources"] = {}
+        if "any" not in db_entry["sources"]:
+            db_entry["sources"]["any"] = source_string
+        if db_entry["sources"]["any"]["latest"] < item["latest"]:
+            db_entry["sources"]["any"] = source_string
+        elif db_entry["sources"]["any"]["time_updated"] >= item["time_updated"]:
             #     print('any')
             # print(item['title'])
             # print(db_entry['sources'])
-            db_entry['sources']['any'] = source_string
+            db_entry["sources"]["any"] = source_string
         # print(db_entry['sources']['any']['time_updated'], item['time_updated'], db_entry['sources']
         #       ['any']['latest'], item['latest'], db_entry['sources']['any']['time_updated'] < item['time_updated'])
-        db_entry['sources'][scansite] = source_string
-        return db_entry['sources']
+        db_entry["sources"][scansite] = source_string
+        return db_entry["sources"]
 
     def clean_title(self, title):
-        return re.sub(
-            r'\s\s+', ' ', title).strip().replace(' ', '-').replace('\n', '').lower()
+        return (
+            re.sub(r"\s\s+", " ", title)
+            .strip()
+            .replace(" ", "-")
+            .replace("\n", "")
+            .lower()
+        )
 
     def clean_chapter(self, chapter):
         regex = r"(?<=Chapter )\d+"
@@ -61,27 +71,27 @@ class Source:
         if match:
             return match.group().strip()
         else:
-            return re.sub(r"[^\d\.]+", '', chapter.replace('Chapter ', '').strip())
+            return re.sub(r"[^\d\.]+", "", chapter.replace("Chapter ", "").strip())
 
     def convert_time(self, time_updated):
         # space between dates nov 23 2022 and current date
-        time_updated = time_updated.split(' ')
+        time_updated = time_updated.split(" ")
         n = time_updated[0]
-        amount = time_updated[1].replace('s', '')
+        amount = time_updated[1].replace("s", "")
         current_time = time.time()
-        if amount == 'second':
+        if amount == "second":
             current_time -= int(n)
-        elif amount == 'minute':
+        elif amount == "minute":
             current_time -= int(n) * 60
-        elif amount == 'hour':
+        elif amount == "hour":
             current_time -= int(n) * 60 * 60
-        elif amount == 'day':
+        elif amount == "day":
             current_time -= int(n) * 60 * 60 * 24
-        elif amount == 'week':
+        elif amount == "week":
             current_time -= int(n) * 60 * 60 * 24 * 7
-        elif amount == 'month':
+        elif amount == "month":
             current_time -= int(n) * 60 * 60 * 24 * 30
-        elif amount == 'year':
+        elif amount == "year":
             current_time -= int(n) * 60 * 60 * 24 * 30 * 12
         return current_time
 
@@ -89,22 +99,18 @@ class Source:
         # self.scrape(first_run=True)
         pass
 
-    def sel(self, url) -> str | None:
+    def html_page_source(self, url) -> str | None:
         print(url)
-        chrome_options = uc.ChromeOptions()
-        chrome_options.add_argument("--window-position=2000,0")
-        driver = uc.Chrome(use_subprocess=True, options=chrome_options)
+        # chrome_options = uc.ChromeOptions()
+        # chrome_options.add_argument("--window-position=2000,0")
+        # driver = uc.Chrome(use_subprocess=True, options=chrome_options)
         try:
-            driver.minimize_window()
-            print('url get', url)
-            driver.get(url)
-            time.sleep(5)
-            html = driver.page_source
-            driver.quit()
+            print("url get", url)
+            self.driver.get(url)
+            html = self.driver.page_source
             return html
         except Exception as e:
             print(traceback.format_exc())
-            driver.quit()
             return None
 
     def __call__(self):
@@ -112,6 +118,8 @@ class Source:
         pass
 
 
-if __name__ == '__main__':
-    Source().sel('https://reaperscans.com/')
+if __name__ == "__main__":
+    strt = time.perf_counter()
+    Source('').html_page_source("https://www.google.com")
+    print(time.perf_counter() - strt)
     pass

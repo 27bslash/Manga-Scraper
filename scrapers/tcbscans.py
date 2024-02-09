@@ -24,25 +24,19 @@ class TcbScraper(Source):
         chapter_regex = r"(?<=chapter-)\d*\.?\d+"
 
         strt = time.perf_counter()
-        if not debug:
-            try:
-                req = requests.get('https://onepiecechapters.com/')
-                print(req)
-                if req.status_code != 200:
-                    print('tcbscasn', req.status_code, 'broken')
-                text = req.text
-            except:
-                return []
-        else:
-            with open('scrapers/test_pages/tcb.html', 'r', encoding="utf-8") as f:
-                text = f.read()
+        req = requests.get('https://tcbscans.com/')
+        print(req)
+        if req.status_code != 200:
+            print('tcbscasn', req.status_code, 'broken')
+        text = req.text
+
         soup = BeautifulSoup(text, 'html.parser')
         cards = soup.select('div[class*="bg-card"]')
         lst = []
         for card in cards:
             link = card.find('a')
             url = link.get('href')
-            url = f"https://onepiecechapters.com{url}"
+            url = f"https://tcbscans.com{url}"
             # print(timeago)
             d = {}
             try:
@@ -68,7 +62,7 @@ class TcbScraper(Source):
                 lst.append(d)
                 # print(d)
                 if debug:
-                    print('tcb', title, chapter, time_updated)
+                    print('tcb', title, chapter,url, time_updated)
             except TypeError:
                 print('tcb',url, traceback.format_exc())
                 continue
@@ -99,4 +93,4 @@ class TcbScraper(Source):
 # t = TcbScraper()()
 if __name__ == '__main__':
     t = TcbScraper()
-    t.scrape(debug=False)
+    t.scrape(debug=True)

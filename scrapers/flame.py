@@ -3,6 +3,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from main import Source
+from config import flame_url
 
 
 class Flame(Source):
@@ -10,18 +11,14 @@ class Flame(Source):
     def scrape(self, debug=False):
         lst = []
 
-        url = 'https://flamescans.org'
-        try:
-            rq = requests.get(url)
-        except:
-            print('req broke', 'flame')
-            pass
+        rq = requests.get(flame_url)
+
         if rq.status_code == 200:
             soup = BeautifulSoup(rq.text, 'html.parser')
         else:
-            print('selenium', url)
+            print('selenium', flame_url)
             try:
-                soup = BeautifulSoup(super().sel(url), 'html.parser')
+                soup = BeautifulSoup(super().html_page_source(flame_url), 'html.parser')
             except Exception as e:
                 print('flame sel error', e)
         updates = soup.find_all('div', 'bigor')
@@ -53,7 +50,7 @@ class Flame(Source):
                 d['domain'] = 'https://flamescans.org'
                 lst.append(d)
                 if debug:
-                    print('flamescans', title, chapter, time_updated)
+                    print('flamescans', link, chapter, time_updated)
             except Exception as e:
                 print('flame', title,  e)
                 pass
