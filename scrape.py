@@ -4,8 +4,10 @@ import time
 import traceback
 from pprint import pprint
 import json
+from pymongo import UpdateOne
 import undetected_chromedriver as uc
-
+import pygetwindow as gw
+import pyautogui
 import requests
 from apscheduler.schedulers.background import BlockingScheduler
 from thefuzz import fuzz
@@ -16,11 +18,21 @@ from scrapers.flame import Flame
 from scrapers.flix import Flix
 from scrapers.leviatan import Leviatan
 from scrapers.reaper import Reaper
-from scrapers.reddit import Reddit_scraper
+from scrapers.reddit import RedditScraper
 from scrapers.tcbscans import TcbScraper
 from datetime import datetime
 from db import db
-from config import testing, first_run, asura_url, leviatan_url, luminous_url, cosmic_url
+from config import (
+    testing,
+    first_run,
+    asura_url,
+    leviatan_url,
+    luminous_url,
+    cosmic_url,
+    void_url,
+)
+
+from selenium.webdriver import Chrome, ChromeOptions
 
 
 class Scraper(Source):
@@ -379,22 +391,33 @@ class Scraper(Source):
         return fuzzysearch
 
     def combine_data(self, first_run=False):
-        total_manga = Reddit_scraper(self.base_leviatan_url).main(first_run)
+        total_manga = RedditScraper(self.base_leviatan_url).main(first_run)
         all_manga = total_manga
         print("combine all manga")
 
-        asura = Asura(self.driver, asura_url, "asurascans",).main()
-        asura2 = Asura(self.driver,f"{asura_url}page/2/", "asurascans").main()
+        asura = Asura(self.driver, asura_url, "asurascans").main()
+        asura2 = Asura(self.driver, f"{asura_url}/page/2/", "asurascans").main()
         # alpha = Asura('https://alpha-scans.org/', 'alphascans').main()
-        cosmic = Asura(self.driver,cosmic_url, "cosmicscans").main()
-        luminous = Asura(self.driver,luminous_url, "luminouscans").main()
+        cosmic = Asura(self.driver, cosmic_url, "cosmicscans").main()
+        luminous = Asura(self.driver, luminous_url, "luminouscans").main()
+        void = Asura(self.driver, void_url, "voidscans").main()
         leviatan = Leviatan(self.driver).scrape()
         reaper = Reaper(self.driver).scrape()
         tcb = TcbScraper(self.driver).scrape()
         flame = Flame(self.driver).scrape()
         flix = Flix(self.driver).scrape()
+        self.driver.quit()
         all_manga += (
-            asura + asura2 + luminous + leviatan + reaper + tcb + flame + cosmic + flix
+            asura
+            + asura2
+            + luminous
+            + void
+            + leviatan
+            + reaper
+            + tcb
+            + flame
+            + cosmic
+            + flix
         )
 
         # all_manga += leviatan
@@ -402,6 +425,7 @@ class Scraper(Source):
 
         # pprint(all_manga)
         all_manga = sorted(all_manga, key=lambda k: k["time_updated"], reverse=True)
+
         return all_manga
 
     @staticmethod
@@ -419,10 +443,17 @@ class Scraper(Source):
             ) as f:
                 data = json.load(f)
         else:
-            chrome_options = uc.ChromeOptions()
-            chrome_options.add_argument("--window-position=2000,0")
-            self.driver = uc.Chrome(use_subprocess=True, options=chrome_options)
+            chrome_options = ChromeOptions()
+            if should_switch_window():
+                chrome_options.add_argument("--window-position=2000,0")
+            try:
+                self.driver = uc.Chrome(use_subprocess=True, options=chrome_options)
+            except Exception as e:
+                print(f"Error: {e} using default selenium driver")
+                self.driver = Chrome(options=chrome_options)
+            self.driver.minimize_window()
             total_manga = self.combine_data(first_run)
+            self.driver.quit()
             with open("D:\\projects\\python\\reddit-manga\\total_manga.json", "w") as f:
                 json.dump(total_manga, f, indent=4)
             total_manga = self.combine_series_by_title(total_manga)
@@ -454,7 +485,6 @@ class Scraper(Source):
             json.dump(new_list, f, indent=4)
         self.scrape(new_list)
         print("\ntime taken", time.perf_counter() - srt)
-        self.driver.close()
         return new_list
 
 
@@ -500,6 +530,12 @@ def net_test(retries):
         except Exception as e:
             time.sleep(1)
     return False
+
+
+def should_switch_window() -> bool:
+    x, y = pyautogui.position()
+    return x < 1920
+
 
 def cleanup_mei():
     """
