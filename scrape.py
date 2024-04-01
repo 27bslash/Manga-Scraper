@@ -121,35 +121,47 @@ class Scraper(Source):
     def update_total_manga(self):
         scans = set()
         all_manga = db["all_manga"].find()
+
         if not self.total_manga:
             with open("new_list.json", "r") as f:
                 self.total_manga = json.load(f)
+
+        bulk_updates = []
+        manga_titles = set(item["title"] for item in self.total_manga)
         for i, item in enumerate(self.total_manga[::-1]):
             scans.add(item["domain"])
             item["latest_sort"] = float(item["latest"])
+
             req = db["all_manga"].find_one({"title": item["title"]})
-            updated = False
             print(
                 f"\r {len(self.total_manga) - i}/{len(self.total_manga)}", end="\x1b[1K"
             )
             if req and not self.testing:
-                db["all_manga"].find_one_and_update(
-                    {"title": item["title"]}, {"$set": item}
-                )
-                updated = True
-            elif not updated and req is None:
+                bulk_updates.append(UpdateOne({"_id": req["_id"]}, {"$set": item}))
+            elif req is None:
+                best_match = None
+                best_ratio = 0
                 for m in all_manga:
                     ratio = fuzz.ratio(item["title"], m["title"])
-                    if ratio > 80 and not self.testing:
-                        db["all_manga"].find_one_and_update(
-                            {"title": m["title"]}, {"$set": item}, upsert=True
+                    if ratio > 80 and ratio > best_ratio:
+                        best_match = m
+                        best_ratio = ratio
+
+                if best_match and not self.testing:
+                    bulk_updates.append(
+                        UpdateOne(
+                            {"_id": best_match["_id"]},
+                            {"$set": item},
+                            upsert=True,
                         )
-                        updated = True
-                        break
-            if not updated and not self.testing:
-                db["all_manga"].find_one_and_update(
-                    {"title": item["title"]}, {"$set": item}, upsert=True
-                )
+                    )
+                else:
+                    bulk_updates.append(
+                        UpdateOne({"title": item["title"]}, {"$set": item}, upsert=True)
+                    )
+        if bulk_updates:
+            db["all_manga"].bulk_write(bulk_updates)
+
         return scans
 
     def test_total_manga(self):
