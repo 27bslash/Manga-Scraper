@@ -20,6 +20,8 @@ chardet = "*"
 pytest = "*"
 pillow = "*"
 undetected-chromedriver = "*"
+pyautogui = "*"
+pygetwindow = "*"
 
 [dev-packages]
 autopep8 = "*"

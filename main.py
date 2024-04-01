@@ -8,7 +8,6 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 from db import db
-import undetected_chromedriver as uc
 
 
 class Source:
