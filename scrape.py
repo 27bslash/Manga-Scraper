@@ -489,6 +489,29 @@ def net_test(retries):
             time.sleep(1)
     return False
 
+def cleanup_mei():
+    """
+    Rudimentary workaround for https://github.com/pyinstaller/pyinstaller/issues/2379
+    """
+    import sys
+    import os
+    from shutil import rmtree
+
+    mei_bundle = getattr(sys, "_MEIPASS", False)
+    print("cleaning MEI files")
+    if mei_bundle:
+        print("mei_bundle found")
+
+        dir_mei, current_mei = mei_bundle.split("_MEI")
+        for file in os.listdir(dir_mei):
+            if file.startswith("_MEI") and not file.endswith(current_mei):
+                try:
+                    rmtree(os.path.join(dir_mei, file))
+                except (
+                    PermissionError
+                ):  # mainly to allow simultaneous pyinstaller instances
+                    pass
+
 
 # scrape(None, False)
 if __name__ == "__main__":
@@ -498,6 +521,7 @@ if __name__ == "__main__":
     #     data = json.load(f)
     #     Scraper("False", False).combine_series_by_title(data)
     # time.sleep(10000)
+    cleanup_mei()
     if net_test(500):
         if first_run and not testing:
             leviatan_url = get_leviatan_url()
