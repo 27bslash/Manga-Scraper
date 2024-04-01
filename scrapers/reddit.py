@@ -14,7 +14,7 @@ cluster = pymongo.MongoClient(f"{connection}?retryWrites=true&w=majority")
 db = cluster["manga-scraper"]
 
 
-class Reddit_scraper:
+class RedditScraper:
     def __init__(self, leviatan) -> None:
         self.base_leviatan_url = leviatan
         self.banned_domains = [
@@ -407,4 +407,4 @@ class Reddit_scraper:
 
 
 if __name__ == "__main__":
-    Reddit_scraper("https://lscomic.com/").main(False)
+    RedditScraper("https://lscomic.com/").main(False)

@@ -4,7 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 from main import Source
 from config import flame_url
-
+import undetected_chromedriver as uc
 
 class Flame(Source):
 
@@ -12,7 +12,7 @@ class Flame(Source):
         lst = []
 
         rq = requests.get(flame_url)
-
+        print('scraping flame scans')
         if rq.status_code == 200:
             soup = BeautifulSoup(rq.text, 'html.parser')
         else:
@@ -60,4 +60,5 @@ class Flame(Source):
 
 
 if __name__ == "__main__":
-    s = Flame().scrape(True)
+    driver = uc.Chrome()
+    s = Flame(driver).scrape(True)

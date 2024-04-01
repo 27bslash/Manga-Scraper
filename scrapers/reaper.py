@@ -24,9 +24,9 @@ class Reaper(Source):
                 req = requests.get(reaper_url)
             except:
                 return []
-            # text = ''
+            # # text = ''
             if req.status_code != 200:
-                print("reaper", req.status_code, "broken")
+                # print("reaper", req.status_code, "broken")
                 try:
                     soup = BeautifulSoup(
                         super().html_page_source(reaper_url), "html.parser"
@@ -34,9 +34,9 @@ class Reaper(Source):
                 except:
                     print("reaper error", traceback.format_exc())
                     return []
-            else:
-                text = req.text
-                soup = BeautifulSoup(text, "html.parser")
+            # else:
+            #     text = req.text
+            #     soup = BeautifulSoup(text, "html.parser")
 
         lst = []
         # content = soup.find("div", {"class": "space-y-4"})
@@ -47,20 +47,17 @@ class Reaper(Source):
                 f.write(text)
             return lst
         for element in latest_comics:
-            d = {}
-            old_chapters = {}
             try:
+                d = {}
+                old_chapters = {}
                 chapter_container = element.find("div").find_all("a")
                 title = element.find("a").text
-
-                for el in chapter_container:
+                for el in chapter_container[::-1]:
                     latest = el
                     title = title.strip()
                     title = re.sub(r"manhwa", "", title.lower())
                     title = super().clean_title(title)
-
                     link = latest.get("href")
-
                     # print(title, link,latest)
                     chapter = re.search(r"Chapter (\d+)", latest.text)[1]
                     chapter = super().clean_chapter(chapter)
@@ -69,6 +66,8 @@ class Reaper(Source):
                     time_updated = super().convert_time(time_updated.strip())
                     if not title or not chapter or not link:
                         continue
+                    if "/novels" in link:
+                        continue
                     d["title"] = title
                     d["latest"] = chapter
                     d["type"] = "reaper"
@@ -76,14 +75,16 @@ class Reaper(Source):
                     d["latest_link"] = link
                     d["scansite"] = "reaperscans"
                     d["domain"] = "https://reaperscans.com"
-                    lst.append(d)
                     old_chapters[d["latest"]] = {
                         "latest_link": link,
                         "scansite": "reaperscans",
                     }
                     d["old_chapters"] = old_chapters
-                if debug:
-                    pprint(d)
+                    if debug:
+                        print(title)
+                        print(d["title"], d["latest"], d["latest_link"])
+                if d:
+                    lst.append(d)
             except Exception as e:
                 print("reaper chapter err", traceback.format_exc())
                 pass

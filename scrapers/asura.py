@@ -5,6 +5,7 @@ import requests
 from main import Source
 import re
 from config import asura_url, luminous_url, cosmic_url
+import undetected_chromedriver as uc
 
 
 class Asura(Source):
@@ -18,6 +19,7 @@ class Asura(Source):
     }
 
     def main(self, debug=False, scrape_site=True):
+        print(f"scraping {self.url}")
         # with open('scrapers/test_pages/asura.html', 'w', encoding="utf-8") as f:
         #     f.write(requests.get('https://asuracomics.com/',
         #             headers=self.headers).text)
@@ -25,18 +27,17 @@ class Asura(Source):
             with open(f"scrapers/test_pages/asura.html", "r", encoding="utf-8") as f:
                 soup = BeautifulSoup(f.read(), "html.parser")
         try:
-            rq = requests.get(self.url, headers=self.headers)
-        except:
-            print(f"{self.url} requests.get failed", traceback.format_exc())
-            return []
-        if scrape_site and rq.status_code == 200:
+            rq = requests.get(self.url, headers=self.headers, timeout=15)
+        except Exception as e:
+            print(f"{self.url} requests.get failed", e.__class__)
+        if scrape_site and rq and rq.status_code == 200:
             soup = BeautifulSoup(rq.text, "html.parser")
         elif scrape_site:
             print("selenium", self.url)
             try:
                 soup = BeautifulSoup(super().html_page_source(self.url), "html.parser")
-            except:
-                print(traceback.format_exc())
+            except Exception as e:
+                print(f"selnium failed {self.url} {e.__class__}")
                 return []
         latest_updates = soup.find_all("div", class_="luf")
         lst = []
@@ -99,5 +100,9 @@ def test():
 
 if __name__ == "__main__":
     # scans = alphascans , luminousscans, cosmicscans, asurascans
-    s = Asura(cosmic_url, "cosmicscans")
-    s.main(debug=True)
+    # s = Asura(cosmic_url, "cosmicscans")
+    chrome_options = uc.ChromeOptions()
+    chrome_options.add_argument("--window-position=2000,0")
+    driver = uc.Chrome(options=chrome_options)
+    Asura(driver, asura_url, "asurascans").main(debug=True)
+    driver.quit()

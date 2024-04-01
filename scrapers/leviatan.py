@@ -29,6 +29,7 @@ class Leviatan(Source):
         # self.main()
         # with open('scrapers/test_pages/leviatan.html', 'r', encoding="utf-8") as f:
         #     text = f.read()
+        print("scraping leviatan")
         lst = []
         title_list = []
         try:
