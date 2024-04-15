@@ -517,7 +517,8 @@ def change_leviatan_url(base_url):
         )
 
 
-def net_test(retries):
+def net_test(retries=500):
+    time.sleep(60)
     for i in range(retries):
         try:
             req = requests.get("https://www.google.co.uk/")

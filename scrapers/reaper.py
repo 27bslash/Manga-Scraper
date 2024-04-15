@@ -29,7 +29,7 @@ class Reaper(Source):
                 # print("reaper", req.status_code, "broken")
                 try:
                     soup = BeautifulSoup(
-                        super().html_page_source(reaper_url), "html.parser"
+                        self.html_page_source(reaper_url), "html.parser"
                     )
                 except:
                     print("reaper error", traceback.format_exc())
@@ -81,7 +81,6 @@ class Reaper(Source):
                     }
                     d["old_chapters"] = old_chapters
                     if debug:
-                        print(title)
                         print(d["title"], d["latest"], d["latest_link"])
                 if d:
                     lst.append(d)

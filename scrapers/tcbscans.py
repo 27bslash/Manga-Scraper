@@ -27,10 +27,12 @@ class TcbScraper(Source):
         strt = time.perf_counter()
         req = requests.get("https://tcbscans.com/")
         print("tcb", req.status_code)
-        if req.status_code != 200:
-            print("tcbscasn", req.status_code, "broken")
         text = req.text
-
+        if req.status_code != 200:
+            text = self.html_page_source("https://tcbscans.com/")
+            if not text:
+                print("tcbscans broken")
+                return []
         soup = BeautifulSoup(text, "html.parser")
         cards = soup.select('div[class*="bg-card"]')
         lst = []
