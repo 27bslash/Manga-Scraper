@@ -11,17 +11,19 @@ import pyautogui
 import requests
 from apscheduler.schedulers.background import BlockingScheduler
 from thefuzz import fuzz
-
+from seleniumbase import SB, BaseCase
 from main import Source
 from scrapers.asura import Asura
+from scrapers.asuralikes import AsuraLikes
 from scrapers.flame import Flame
 from scrapers.flix import Flix
 from scrapers.leviatan import Leviatan
+from scrapers.manhua_updates import ManhuaPlus
 from scrapers.reaper import Reaper
 from scrapers.reddit import RedditScraper
 from scrapers.tcbscans import TcbScraper
 from datetime import datetime
-from db import db
+from db import db, net_test
 from config import (
     testing,
     first_run,
@@ -29,7 +31,6 @@ from config import (
     leviatan_url,
     luminous_url,
     cosmic_url,
-    void_url,
 )
 
 from selenium.webdriver import Chrome, ChromeOptions
@@ -277,7 +278,6 @@ class Scraper(Source):
         return combined_sources
 
     def update_manga_sources(self, lst):
-        # print('l', lst)
         # takes a list of dupes and makes a list of sources
         db_entries = self.atlas_search(lst[0]["title"])
         if len(db_entries) > 1:
@@ -390,34 +390,46 @@ class Scraper(Source):
         ]
         return fuzzysearch
 
-    def combine_data(self, first_run=False):
+    def combine_data(self, sb, first_run=False):
         total_manga = RedditScraper(self.base_leviatan_url).main(first_run)
         all_manga = total_manga
         print("combine all manga")
-
-        asura = Asura(self.driver, asura_url, "asurascans").main()
-        asura2 = Asura(self.driver, f"{asura_url}/page/2/", "asurascans").main()
+        asura2 = []
+        asura = Asura(sb, asura_url, "asurascans").main()
+        if asura and first_run:
+            asura2 = Asura(sb, f"{asura_url}/page/2/", "asurascans").main()
         # alpha = Asura('https://alpha-scans.org/', 'alphascans').main()
-        cosmic = Asura(self.driver, cosmic_url, "cosmicscans").main()
-        luminous = Asura(self.driver, luminous_url, "luminouscans").main()
-        void = Asura(self.driver, void_url, "voidscans").main()
-        leviatan = Leviatan(self.driver).scrape()
-        reaper = Reaper(self.driver).scrape()
-        tcb = TcbScraper(self.driver).scrape()
-        flame = Flame(self.driver).scrape()
-        flix = Flix(self.driver).scrape()
-        self.driver.quit()
+        # cosmic = Asura(sb, cosmic_url, "cosmicscans").main()
+        luminous = AsuraLikes(sb, luminous_url, "luminouscans").main()
+        riz_comics = AsuraLikes(sb, "https://rizzfables.com/", "rizzfables").main()
+        hive_scans = Leviatan(sb, 'https://hivetoon.com/', 'hivescans').scrape()
+        # void = Asura(sb, void_url, "voidscans").main()
+        # leviatan = Leviatan(sb, 'https://lscomic.com/', 'leviatanscans').scrape()
+        # reaper = Reaper(sb).scrape()
+        tcb = TcbScraper(sb).scrape()
+        flame = Flame(sb).scrape()
+        # flix = Flix(sb).scrape()
+        manhua_plus = ManhuaPlus(
+            sb, url='https://manhuaplus.com/', scansite="manhua-plus"
+        ).scrape()
+        manhua_fast = ManhuaPlus(
+            sb, url='https://manhuafast.net/', scansite="manhuafast"
+        ).scrape()
+
         all_manga += (
             asura
             + asura2
             + luminous
-            + void
-            + leviatan
-            + reaper
+            + riz_comics
+            + hive_scans
+            # + void
+            # + leviatan
+            # + reaper
             + tcb
             + flame
-            + cosmic
-            + flix
+            # + flix
+            + manhua_plus
+            + manhua_fast
         )
 
         # all_manga += leviatan
@@ -435,6 +447,8 @@ class Scraper(Source):
 
     def main(self, first_run=False):
         os.system("cls")
+        if not net_test(500):
+            return
         print("flask api test results: ", self.api_test())
         if self.testing:
             with open(
@@ -447,13 +461,17 @@ class Scraper(Source):
             if should_switch_window():
                 chrome_options.add_argument("--window-position=2000,0")
             try:
-                self.driver = uc.Chrome(use_subprocess=True, options=chrome_options)
-            except Exception as e:
-                print(f"Error: {e} using default selenium driver")
-                self.driver = Chrome(options=chrome_options)
-            self.driver.minimize_window()
-            total_manga = self.combine_data(first_run)
-            self.driver.quit()
+                with SB(
+                    uc_cdp=True,
+                    guest_mode=True,
+                    undetectable=True,
+                    headless2=True,
+                ) as sb:
+                    total_manga = self.combine_data(sb, first_run)
+            except Exception:
+                print("selenium failed to start")
+                sb.driver.quit()
+                return
             with open("D:\\projects\\python\\reddit-manga\\total_manga.json", "w") as f:
                 json.dump(total_manga, f, indent=4)
             total_manga = self.combine_series_by_title(total_manga)
@@ -517,22 +535,6 @@ def change_leviatan_url(base_url):
         )
 
 
-def net_test(retries=500):
-    time.sleep(60)
-    for i in range(retries):
-        try:
-            req = requests.get("https://www.google.co.uk/")
-            if req.status_code == 200:
-                print("connected to the internet")
-                return True
-            else:
-                time.sleep(1)
-                continue
-        except Exception as e:
-            time.sleep(1)
-    return False
-
-
 def should_switch_window() -> bool:
     x, y = pyautogui.position()
     return x < 1920
@@ -570,8 +572,9 @@ if __name__ == "__main__":
     #     data = json.load(f)
     #     Scraper("False", False).combine_series_by_title(data)
     # time.sleep(10000)
+
     cleanup_mei()
-    if net_test(500):
+    if net_test():
         if first_run and not testing:
             leviatan_url = get_leviatan_url()
             change_leviatan_url(base_url=leviatan_url)

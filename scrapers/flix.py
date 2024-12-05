@@ -5,10 +5,12 @@ from selenium.webdriver.common.by import By
 from main import Source
 import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
+from seleniumbase import SB, BaseCase
+from selenium.webdriver.remote.webelement import WebElement
 
 
 class Flix(Source):
-    def __init__(self, driver) -> None:
+    def __init__(self, driver: BaseCase) -> None:
         self.driver = driver
         self.scansite = "flixscans"
         pass
@@ -33,18 +35,18 @@ class Flix(Source):
 
     def scrape_simple_site(self):
         if (
-            "local" not in self.driver.current_url
-            and "flix" not in self.driver.current_url
+            "local" not in self.driver.get_current_url()
+            and "flix" not in self.driver.get_current_url()
         ):
             self.driver.get("https://flixscans.org/webtoons/action/home")
         ret = []
         try:
             xpath = "//div[@class='px-2']/div/div"
             all_series = self.driver.find_elements(By.XPATH, xpath)
-            source = self.driver.page_source
+            source = self.driver.get_page_source()
             soup = BeautifulSoup(source, "html.parser")
-            sreies_container = soup.find(class_="px-2")
-            all_series = sreies_container.find_all("div", {"dir": "ltr"})
+            series_container = soup.find(class_="px-2")
+            all_series = series_container.find_all("div", {"dir": "ltr"})
             for series in all_series:
                 try:
                     old_chapters = {}
@@ -80,8 +82,8 @@ class Flix(Source):
 
     def scrape_complex_site(self):
         if (
-            "local" not in self.driver.current_url
-            and "flix" not in self.driver.current_url
+            "local" not in self.driver.get_current_url()
+            and "flix" not in self.driver.get_current_url()
         ):
             self.driver.get("https://flixscans.org/webtoons/action/home")
         try:
@@ -119,11 +121,12 @@ class Flix(Source):
         if not results:
             print("scraping simple flix scans")
             results = self.scrape_simple_site()
-        self.driver.quit()
         return results
 
 
 if __name__ == "__main__":
-    driver = uc.Chrome()
-    Flix(driver).scrape_simple_site()
-    pass
+    options = uc.ChromeOptions()
+    # options.add_argument("--headless=new")
+    # driver = uc.Chrome(options=options)
+    with SB() as sb:
+        Flix(sb).scrape()

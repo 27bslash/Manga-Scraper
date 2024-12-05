@@ -1,40 +1,43 @@
 from pprint import pprint
 import re
+import time
 import traceback
 import requests
 from bs4 import BeautifulSoup
-import undetected_chromedriver as uc
+from seleniumbase import SB
 from main import Source
 from config import reaper_url
 
 
 class Reaper(Source):
+    def __init__(self, sb) -> None:
+        super().__init__(sb)
+
     def main(self):
         return
 
     def scrape(self, debug=False, scrape_site=True):
         if not scrape_site:
-            with open(
-                "scrapers/test_pages/reaper.html", "r", encoding="utf-8"
-            ) as element:
-                text = element.read()
+            with open("scrapers/test_pages/reaper.html", "r", encoding="utf-8") as f:
+                text = f.read()
                 soup = BeautifulSoup(text, "html.parser")
         if scrape_site:
             try:
-                req = requests.get(reaper_url)
-            except:
-                return []
-            # # text = ''
-            if req.status_code != 200:
-                # print("reaper", req.status_code, "broken")
-                try:
-                    soup = BeautifulSoup(
-                        self.html_page_source(reaper_url), "html.parser"
-                    )
-                except:
-                    print("reaper error", traceback.format_exc())
+                strt = time.perf_counter()
+                rq = requests.get(reaper_url, timeout=1)
+                print(f'reaper scans  took {time.perf_counter() - strt} seconds')
+
+                rq.raise_for_status()  # Raises HTTPError for bad responses
+                soup = BeautifulSoup(rq.text, "html.parser")
+            except requests.RequestException as e:
+                print(f"Error fetching {reaper_url}: {e}")
+                print("Switching to Selenium... for reaper")
+                data = super().html_page_source(
+                    reaper_url, success_selector=".font-sans"
+                )
+                if not data:
                     return []
-            # else:
+                soup = BeautifulSoup(data, "html.parser")
             #     text = req.text
             #     soup = BeautifulSoup(text, "html.parser")
 
@@ -151,7 +154,5 @@ class Reaper(Source):
 
 
 if __name__ == "__main__":
-    chrome_options = uc.ChromeOptions()
-    chrome_options.add_argument("--window-position=2000,0")
-    driver = uc.Chrome(use_subprocess=True, options=chrome_options)
-    Reaper(driver).scrape(debug=True, scrape_site=False)
+    with SB(undetectable=True, headless2=True) as sb:
+        Reaper(sb).scrape(debug=True, scrape_site=True)

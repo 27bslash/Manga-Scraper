@@ -1,16 +1,34 @@
 from pprint import pprint
 import time
 import traceback
-from bs4 import BeautifulSoup
+from typing import Any, Literal, Never, Optional, TypedDict
+from bs4 import BeautifulSoup, Tag
 import requests
 from main import Source
 import re
-from config import asura_url
+from config import asura_url, luminous_url, cosmic_url
 import undetected_chromedriver as uc
 from seleniumbase import SB
 
 
-class Asura(Source):
+class OldChapters(TypedDict):
+    latest_link: str
+    time_updated: str
+    old_chapters: Optional[dict[str, "OldChapters"]]  # Recursive type
+
+
+class MangaDict(TypedDict):
+    title: Optional[str]
+    latest: Optional[str]
+    latest_link: Optional[str]
+    time_updated: float
+    scansite: Optional[str]
+    type: Optional[str]
+    domain: Optional[str]
+    old_chapters: OldChapters
+
+
+class AsuraLikes(Source):
     def __init__(self, sb, site: str, scansite: str) -> None:
         self.url = site
         self.scansite = scansite
@@ -20,76 +38,59 @@ class Asura(Source):
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.128 Safari/537.36"
     }
 
-    def main(self, debug=False, scrape_site=True):
+    def main(self, debug=False, scrape_site=True) -> list[dict[str, Any]] | list[Never]:
         print(f"scraping {self.url}")
         # with open('scrapers/test_pages/asura.html', 'w', encoding="utf-8") as f:
         #     f.write(requests.get('https://asuracomics.com/',
         #             headers=self.headers).text)
         if not scrape_site:
-            with open(f"scrapers/test_pages/asura.html", "r", encoding="utf-8") as f:
+            with open("scrapers/test_pages/luminous.html", "r", encoding="utf-8") as f:
                 soup = BeautifulSoup(f.read(), "html.parser")
         else:
             try:
                 strt = time.perf_counter()
                 rq = requests.get(self.url, headers=self.headers, timeout=5)
                 print(f'{self.url} took {time.perf_counter() - strt} seconds')
-
                 rq.raise_for_status()  # Raises HTTPError for bad responses
+
                 soup = BeautifulSoup(rq.text, "html.parser")
             except requests.RequestException as e:
-                print(f"Error fetching {self.url}: {e}")
                 if isinstance(e, requests.ConnectTimeout):
                     return []
+                print(f"Error fetching {self.url}: {e}")
                 print("Switching to Selenium...")
-                data = super().html_page_source(
-                    self.url, ".col-span-9 space-y-1.5 overflow-hidden pl-[9px]"
-                )
+                data = super().html_page_source(self.url, ".luf")
                 if not data:
                     return []
                 soup = BeautifulSoup(data, "html.parser")
-        latest_updates = soup.find_all(
-            "div", class_="col-span-9 space-y-1.5 overflow-hidden pl-[9px]"
-        )
+        latest_updates: list[Tag] = soup.find_all("div", class_="luf")
         lst = []
         for update in latest_updates:
-            d = {}
-            old_chapters = {}
+            d: MangaDict = {}
+            old_chapters: OldChapters = {}
             try:
-                title = update.find("a").get('href')
-                if title:
-                    title = re.search(r".*/(.+)-", title).group(1)
-                    title = super().clean_title(title)
-                else:
-                    continue
+                title = update.find("a").text.strip()
                 if "raw" in title.lower():
                     continue
-                chapters = update.find_all("a")
-                del chapters[0]
-                text_els = update.find_all("p")
-                times_updated = [
-                    text_el.text.strip()
-                    for text_el in text_els
-                    if 'ago' in text_el.text.lower()
-                ]
-                i = 0
-                if not times_updated:
-                    print(
-                        f"Asura scans warning for {title} chapter elements length: {len(chapters)} update time elements length: {len(text_els)}"
-                    )
-                    continue
-                d["time_updated"] = super().convert_time(times_updated[0])
-                for chapter_link in chapters[::-1]:
-                    chapter = chapter_link.find('svg').parent.text
-                    link = chapter_link.get("href")
+                chapter_container = update.find("ul")
+                chapters: list[Tag] = chapter_container.find_all("li")
+                for chapter_obj in chapters[::-1]:
+                    chapter_link: Tag = chapter_obj.find("a")
+                    chapter = chapter_link.text
+                    link: str = chapter_link.get("href") # type: ignore
+                    spans = chapter_obj.find_all("span")
+                    time_updated = [span.get('id') for span in spans if span.get('id')][
+                        0
+                    ].replace('relativeTime_', '')
+
                     if not title or not chapter or not link:
                         continue
-                    if self.url not in link:
-                        link = f"{self.url}{link}"
-                    d["title"] = title
+                    d["title"] = super().clean_title(title)
                     d["latest"] = re.search(
                         r"\d+", super().clean_chapter(chapter)
                     ).group(0)
                     d["latest_link"] = link
+                    d["time_updated"] = float(time_updated)
                     d["scansite"] = self.scansite
                     d["domain"] = self.url
                     d["type"] = self.scansite
@@ -98,21 +99,17 @@ class Asura(Source):
                         "scansite": self.scansite,
                     }
                     d["old_chapters"] = old_chapters
-                    i += 1
                 # print(d['title'], d['latest'])
                 lst.append(d)
                 if debug:
                     pprint(d)
-            except Exception as e:
+            except Exception:
                 print(
-                    f"{self.url} chapter error, {d['title']} {self.url} chapter {d['latest']} {times_updated} {len(chapters)} {traceback.format_exc()}"
+                    f"{self.url} chapter error, {time_updated} {traceback.format_exc()}"
                 )
         if len(lst) == 0:
             print(f"{self.url} broken check logs no data returned")
         return lst
-
-    def __call__(self):
-        return self.main()
 
 
 if __name__ == "__main__":
@@ -122,5 +119,9 @@ if __name__ == "__main__":
         # chrome_options = uc.ChromeOptions()
         # chrome_options.add_argument("--window-position=2000,0")
         # driver = uc.Chrome(options=chrome_options)
-        Asura(sb, f"{asura_url}", "asurascans").main(debug=False, scrape_site=False)
+        # AsuraLikes(sb, luminous_url, "luminousscans").main(debug=True, scrape_site=True)
+        riz_comics = AsuraLikes(sb, "https://hivetoon.com/", "hivecomics").main(
+            scrape_site=True
+        )
+
         # driver.quit()

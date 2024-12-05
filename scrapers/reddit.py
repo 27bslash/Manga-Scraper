@@ -364,7 +364,7 @@ class RedditScraper:
     def get_chapter_number(self, submission):
         title = submission.title
         if "webtoons" in submission.url:
-            match = re.search(r"(?<=episode_no=).*", submission.url)
+            match = re.search(r"(?<=episode_no=)\d+\.?\d*", submission.url)
             if match:
                 return match.group()
         chapter_num = self.get_chapter_num_from_title(title)

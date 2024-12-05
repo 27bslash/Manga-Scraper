@@ -1,22 +1,21 @@
 import datetime
-from pprint import pprint
 import re
+import time
 import traceback
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from main import Source
-
+from seleniumbase import SB
 from config import leviatan_url
 
 
 class Leviatan(Source):
-    def main(self):
-        req = requests.get(leviatan_url)
-        print(req.status_code)
-        # with open('scrapers/test_pages/leviatan.html', 'w', encoding="utf-8") as f:
-        #     f.write(req.text)
-        # pass
+    def __init__(self, sb, url, scansite) -> None:
+        self.url = url
+        self.scansite = scansite
+        super().__init__(sb)
 
+    
     def convert_dates(self, date):
         try:
             date_object = datetime.datetime.strptime(date.strip(), "%b %d, %Y")
@@ -25,74 +24,80 @@ class Leviatan(Source):
         except:
             return None
 
-    def scrape(self, debug=False):
+    def scrape(self, scrape_site=True, debug=False) -> list:
         # self.main()
-        # with open('scrapers/test_pages/leviatan.html', 'r', encoding="utf-8") as f:
-        #     text = f.read()
-        print("scraping leviatan")
+        print(f"scraping {self.scansite}")
         lst = []
         title_list = []
-        try:
-            req = requests.get(leviatan_url)
-        except:
-            return []
-        if req.status_code != 200:
-            print("leviatan", req.status_code, "broken")
-            text = super().html_page_source(leviatan_url)
-            if not text:
-                return []
+        if not scrape_site:
+            with open('scrapers/test_pages/leviatan.html', 'r', encoding="utf-8") as f:
+                data = f.read()
+                soup = BeautifulSoup(data, 'html.parser')
         else:
-            text = req.text
+            try:
+                strt = time.perf_counter()
+                rq = requests.get(self.url, timeout=5)
+                print(f'leviatan scans  took {time.perf_counter() - strt} seconds')
+
+                rq.raise_for_status()  # Raises HTTPError for bad responses
+                soup = BeautifulSoup(rq.text, "html.parser")
+            except requests.RequestException as e:
+                print(f"Error fetching {self.url}: {e}")
+                print("Switching to Selenium...")
+                data = super().html_page_source(
+                    self.url, success_selector='.chapter-item'
+                )
+                if not data:
+                    return []
+                soup = BeautifulSoup(data, "html.parser")
 
         # with open('scrapers/test_pages/leviatan.html', 'w', encoding="utf-8") as f:
         #     f.write(text)
         # with open('scrapers/test_pages/leviatan.html', 'r', encoding="utf-8") as f:
         #     text = f.read()
-
-        soup = BeautifulSoup(text, "html.parser")
-        chapters = soup.select('div[class*="chapter-item"]')
-        titles = soup.select('div[class*="post-title"]')
-        item_summary = soup.select('div[class*="item-summary"]')
+        item_summary = soup.select('div[class*="luf"]')
         for item in item_summary:
             d = {}
-            title_el = item.find("div", "post-title").find("a").text
+            old_chapters = {}
+            title_el = item.find("a").text
             title = super().clean_title(title_el)
             try:
-                chapter_el = item.find("div", "chapter-item")
+                chapter_el = item.find("ul")
                 if not chapter_el:
                     continue
-                chapter = super().clean_chapter(chapter_el.find("span").text)
-                link_el = chapter_el.find("a").get("href")
-                a_tags = chapter_el.find_all("a")
-                time_el = None
-                for tag in a_tags:
-                    if tag.has_attr("title"):
-                        time_el = tag.attrs["title"]
-                        break
-                if time_el is None:
-                    o = chapter_el.find_all("span")
-                    time_el = o[-1].text
-                time_updated = self.convert_dates(time_el)
-                if not time_updated:
-                    time_updated = super().convert_time(time_el)
-                if not title or not chapter or not link_el:
-                    continue
+                chapter_container = item.find("ul")
+                chapters: list[Tag] = chapter_container.find_all("li")
+                for chapter_obj in chapters[::-1]:
+                    chapter_link: Tag = chapter_obj.find("a")
+                    chapter = chapter_link.text
+                    link: str = chapter_link.get("href")  # type: ignore
+                    span = chapter_obj.find("span").text
+                    time_updated = super().convert_time(span)
 
-                d["type"] = "leviatan"
-                d["title"] = title
-                d["latest"] = re.search(r"\d+", chapter).group(0)
-                d["latest_link"] = link_el
-                d["time_updated"] = time_updated
-                d["scansite"] = "leviatanscans"
-                d["domain"] = "https://lscomic.com/"
+                    if not title or not chapter or not link:
+                        continue
+                    d["title"] = super().clean_title(title)
+                    d["latest"] = re.search(
+                        r"\d+", super().clean_chapter(chapter)
+                    ).group(0)
+                    d["latest_link"] = link
+                    d["time_updated"] = float(time_updated)
+                    d["scansite"] = self.scansite
+                    d["domain"] = self.url
+                    d["type"] = self.scansite
+                    old_chapters[d["latest"]] = {
+                        "latest_link": link,
+                        "scansite": self.scansite,
+                    }
+                    d["old_chapters"] = old_chapters
                 lst.append(d)
                 if debug:
-                    print("leviatan", title, chapter, time_updated)
-            except Exception as e:
-                print("leviatan", title, traceback.format_exc())
+                    print({self.scansite}, title, chapter, time_updated)
+            except Exception:
+                print({self.scansite}, title, traceback.format_exc())
                 pass
         if len(lst) == 0:
-            print("leviatan broken check logs")
+            print(f"{self.scansite} broken check logs")
         return lst
         # print(lst)
         # for card in titles:
@@ -102,4 +107,7 @@ class Leviatan(Source):
 
 
 if __name__ == "__main__":
-    s = Leviatan().scrape(True)
+    with SB() as sb:
+        manhua_fast = Leviatan(sb, "https://hivetoon.com/", "hivecomics").scrape(
+            scrape_site=False, debug=True
+        )

@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from db import db
 from main import Source
 import undetected_chromedriver as uc
+from seleniumbase import SB, BaseCase
 
 
 class TcbScraper(Source):
@@ -25,15 +26,23 @@ class TcbScraper(Source):
         chapter_regex = r"(?<=chapter-)\d*\.?\d+"
 
         strt = time.perf_counter()
-        req = requests.get("https://tcbscans.com/")
-        print("tcb", req.status_code)
-        text = req.text
-        if req.status_code != 200:
-            text = self.html_page_source("https://tcbscans.com/")
-            if not text:
-                print("tcbscans broken")
+        try:
+            strt = time.perf_counter()
+            rq = requests.get("https://tcbscans.com", timeout=5)
+            print(f'tcbscans  took {time.perf_counter() - strt} seconds')
+            rq.raise_for_status()  # Raises HTTPError for bad responses
+            soup = BeautifulSoup(rq.text, "html.parser")
+        except requests.RequestException as e:
+            print(f'Error fetching "https://tcbscans.com": {e}')
+            if isinstance(e, requests.ConnectTimeout):
                 return []
-        soup = BeautifulSoup(text, "html.parser")
+            print("Switching to Selenium...")
+            data = super().html_page_source(
+                "https://tcbscans.com", success_selector='.bg-card'
+            )
+            if not data:
+                return []
+            soup = BeautifulSoup(data, "html.parser")
         cards = soup.select('div[class*="bg-card"]')
         lst = []
         for card in cards:
@@ -94,6 +103,7 @@ class TcbScraper(Source):
 
 # t = TcbScraper()()
 if __name__ == "__main__":
-    driver = uc.Chrome()
-    t = TcbScraper(driver)
-    t.scrape(debug=True)
+    with SB(undetectable=True) as sb:
+        t = TcbScraper(sb)
+        t.scrape(debug=True)
+    pass
