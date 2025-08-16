@@ -4,7 +4,12 @@ import os
 import pymongo
 import requests
 
-load_dotenv()
+base_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Path to the .env file
+env_path = os.path.join(base_dir, '.env')
+print(env_path)
+load_dotenv(env_path)
 
 
 def net_test(retries=500):
@@ -19,6 +24,7 @@ def net_test(retries=500):
 
 
 if net_test():
+    time.sleep(60)
     connection = os.environ["DB_CONNECTION"]
     cluster = pymongo.MongoClient(f"{connection}?retryWrites=true&w=majority")
     db = cluster["manga-scraper"]

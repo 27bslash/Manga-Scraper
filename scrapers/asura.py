@@ -25,6 +25,7 @@ class Asura(Source):
         # with open('scrapers/test_pages/asura.html', 'w', encoding="utf-8") as f:
         #     f.write(requests.get('https://asuracomics.com/',
         #             headers=self.headers).text)
+        data = None
         if not scrape_site:
             with open(f"scrapers/test_pages/asura.html", "r", encoding="utf-8") as f:
                 soup = BeautifulSoup(f.read(), "html.parser")
@@ -33,7 +34,7 @@ class Asura(Source):
                 strt = time.perf_counter()
                 rq = requests.get(self.url, headers=self.headers, timeout=5)
                 print(f'{self.url} took {time.perf_counter() - strt} seconds')
-
+                data = rq.text
                 rq.raise_for_status()  # Raises HTTPError for bad responses
                 soup = BeautifulSoup(rq.text, "html.parser")
             except requests.RequestException as e:
@@ -51,6 +52,10 @@ class Asura(Source):
             "div", class_="col-span-9 space-y-1.5 overflow-hidden pl-[9px]"
         )
         lst = []
+        if debug and data:
+            with open('scrapers/test_pages/asura.html', 'w', encoding='utf-8') as file:
+                file.write(data)
+                pass
         for update in latest_updates:
             d = {}
             old_chapters = {}
@@ -66,11 +71,18 @@ class Asura(Source):
                 chapters = update.find_all("a")
                 del chapters[0]
                 text_els = update.find_all("p")
-                times_updated = [
-                    text_el.text.strip()
-                    for text_el in text_els
-                    if 'ago' in text_el.text.lower()
-                ]
+                times_updated = []
+                pay_walled = False
+                for element in text_els:
+                    text = element.text.strip().lower()
+                    if 'ago' in text:
+                        times_updated.append(text)
+                    if 'public' in text:
+                        pay_walled = True
+                        break
+                if pay_walled:
+                    print('pay walled', title)
+                    continue
                 i = 0
                 if not times_updated:
                     print(
@@ -83,8 +95,8 @@ class Asura(Source):
                     link = chapter_link.get("href")
                     if not title or not chapter or not link:
                         continue
-                    if self.url not in link:
-                        link = f"{self.url}{link}"
+                    if asura_url not in link:
+                        link = f"{asura_url}{link}"
                     d["title"] = title
                     d["latest"] = re.search(
                         r"\d+", super().clean_chapter(chapter)
@@ -122,5 +134,5 @@ if __name__ == "__main__":
         # chrome_options = uc.ChromeOptions()
         # chrome_options.add_argument("--window-position=2000,0")
         # driver = uc.Chrome(options=chrome_options)
-        Asura(sb, f"{asura_url}", "asurascans").main(debug=False, scrape_site=False)
+        Asura(sb, f"{asura_url}", "asurascans").main(debug=True, scrape_site=False)
         # driver.quit()

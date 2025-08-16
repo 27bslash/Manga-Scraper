@@ -7,7 +7,9 @@ from config import testing, first_run
 
 
 def create_exe():
-    PyInstaller.__main__.run(["scrape.py", "--onefile", "--icon=.\\logo192.webp"])
+    PyInstaller.__main__.run(
+        ["scrape.py", "--onefile", "--icon=.\\logo192.webp", "--add-data=.\\.env;."]
+    )
 
 
 def create_shortcut():

@@ -189,7 +189,6 @@ class RedditScraper:
         user_agent
         """
 
-        # reddit = praw.Reddit('MANGA')
         reddit = praw.Reddit(
             check_for_updates=True,
             comment_kind="t1",
@@ -207,24 +206,29 @@ class RedditScraper:
             client_secret=os.environ["CLIENT_SECRET"],
             user_agent=os.environ["USER_AGENT"],
         )
+
         manga_list = []
         submissions = []
-        limit = 50
+        limit = None
         sort = "new"
         if first_run:
             limit = None
             sort = "hot"
 
-        for submission in reddit.subreddit("manga").search(
-            'flair:"DISC"', sort=sort, limit=limit
-        ):
-            submissions.append(submission)
-        for submission in reddit.subreddit("manga").search("*", limit=limit, sort=sort):
-            if "disc" in submission.title.lower():
-                if submission not in submissions:
+        seen_ids = set()
+        queries = ['flair:"DISC"', '*']
+
+        for query in queries:
+            for submission in reddit.subreddit("manga").search(
+                query, sort=sort, limit=limit
+            ):
+                if query == "*" and "disc" not in submission.title.lower():
+                    continue
+                if submission.id not in seen_ids:
                     submissions.append(submission)
+                    seen_ids.add(submission.id)
+        print(len(submissions), "submissions found")
         for submission in submissions[::-1]:
-            # print(submission.title)
             d = {}
             scan_site = None
             title = None
@@ -238,18 +242,19 @@ class RedditScraper:
                 continue
             title = self.get_title(submission)
             if not title:
-                print(f"{submission.title} has no title")
+                print(f"{submission.title} is not a valid title")
                 continue
             chapter_num = self.get_chapter_number(submission)
             if not chapter_num:
+                print(f"\"{submission.title}\" no valid chapter number")
                 continue
-            if "one punch" in submission.title.lower():
-                pass
             # scan_site = self.get_scans(title=submission.title)
             url = self.get_url(
                 submission=submission, title=title, chapter_num=chapter_num
             )
             # print(title, chapter_num)
+            if url and 'asura' in url:
+                continue
             domain = submission.domain
             if "self.manga" in domain:
                 domain = self.extract_domain(url)
@@ -312,21 +317,16 @@ class RedditScraper:
                     except Exception as e:
                         print("submission error", e, title, chapter_num)
                 domain = self.extract_domain(url)
-                if (
-                    domain
-                    and "reddit" not in domain
-                    and "twitter" not in domain
-                    and "cubari" not in domain
-                ):
+                if domain and "twitter" not in domain and "cubari" not in domain:
                     scan_site = self.get_scans(url=domain)
                 else:
-                    # print(title, 'no domain', chapter_num)
+                    print(title, 'no domain', chapter_num)
                     continue
             else:
                 url = submission.url
                 scan_site = self.get_scans(url=domain)
                 # print(title, domain, scan_site)
-            if not url or "reddit" in url:
+            if not url:
                 print("no url", title, chapter_num, domain, submission.url)
                 continue
             if not scan_site:
@@ -335,7 +335,7 @@ class RedditScraper:
             if "ch" in scan_site:
                 # print('ch', title, scan_site)
                 continue
-            if "reddit" in scan_site:
+            if "reddit" in scan_site and ("gallery" not in url and "cubari" not in url):
                 continue
             if "flame" in scan_site and "extra" in title:
                 continue
@@ -373,7 +373,7 @@ class RedditScraper:
     def get_chapter_num_from_title(self, title: str):
         # chapter_regex = r".*(?<=chapter|episode)|.*(?<=ch|ep)"
         # chapter_regex = r"(?<=Ch\.|Episode|Chapter)\s?(\d+\.?\-?\d+)"
-        chapter_regex = R"(?<=Episode|Chapter)\:*\-?\s?(\d+\.?\-?\d+)|(?<=Ep|Ch)\.?\s?(\d+\.?\-?\d+)"
+        chapter_regex = R"(?<=Episode|Chapter)s?p?\:*\-?\s?(\d+\.?\-?\d*)|(?<=Ep|Ch)s?p?\.?\s?(\d+\.?\-?\d*)"
         matches = re.findall(chapter_regex, title, re.IGNORECASE)
         # print(matches)
         pot_chapters = []
@@ -407,4 +407,4 @@ class RedditScraper:
 
 
 if __name__ == "__main__":
-    RedditScraper("https://lscomic.com/").main(False)
+    RedditScraper("https://lscomic.com/").main(True)

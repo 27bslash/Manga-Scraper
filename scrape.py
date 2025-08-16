@@ -13,10 +13,10 @@ from apscheduler.schedulers.background import BlockingScheduler
 from thefuzz import fuzz
 from seleniumbase import SB, BaseCase
 from main import Source
+from scrapers.hive import Hive
 from scrapers.asura import Asura
 from scrapers.asuralikes import AsuraLikes
 from scrapers.flame import Flame
-from scrapers.flix import Flix
 from scrapers.leviatan import Leviatan
 from scrapers.manhua_updates import ManhuaPlus
 from scrapers.reaper import Reaper
@@ -33,7 +33,32 @@ from config import (
     cosmic_url,
 )
 
-from selenium.webdriver import Chrome, ChromeOptions
+from selenium.webdriver import ChromeOptions
+from typing import Dict, Optional, TypedDict
+
+
+class Chapter(TypedDict):
+    latest_link: str
+    scansite: str
+
+
+class Sources(TypedDict):
+    latest_link: str
+    latest: str
+    old_chapters: Optional[Dict[str, Chapter]]
+    time_updated: float
+
+
+class ComicData(TypedDict):
+    time_updated: float
+    title: str
+    latest: str
+    latest_link: str
+    scansite: str
+    domain: str
+    type: str
+    old_chapters: Optional[Dict[str, Chapter]]
+    sources: Optional[Dict[str, Sources]]
 
 
 class Scraper(Source):
@@ -87,42 +112,53 @@ class Scraper(Source):
                 self.total_manga = json.load(f)
         for total_manga_dict in self.total_manga[::-1]:
             for user_manga in user_list:
-                search_res = self.fuzzy_search(
-                    user_manga["title"], total_manga_dict["title"]
+                alternate_titles = (
+                    set(user_manga['alternate_titles'])
+                    if 'alternate_titles' in user_manga
+                    else set()
                 )
-                if search_res > 82:
-                    # if 'berserk' in item['title']:
-                    #     print('debvug')
-                    # sys.stdout.write('\x1b[2K')
-                    # if 'novel' in item['title']:
-                    #     print('debvug')
-                    # print(
-                    #     f" \r{length - i}/{length} {item['title']} {item['latest']} {item['scansite']}", end='')
-                    user_manga["latest"] = total_manga_dict["sources"]["any"]["latest"]
-                    # if 'world-after' in item['title']:
-                    #     print('debug')
-                    user_manga["sources"] = self.update_user_sources(
-                        user_manga["sources"], total_manga_dict["sources"]
-                    )
-                    current_source = user_manga["current_source"]
-                    curr_source = (
-                        "any"
-                        if current_source not in user_manga["sources"]
-                        else current_source
-                    )
-                    # print(manga['title'], user_id, manga)
-                    user_manga["read"] = float(
-                        user_manga["sources"][curr_source]["latest"]
-                    ) <= float(user_manga["chapter"])
-                    if not user_manga["read"]:
-                        print(
-                            f"in {user_id} {total_manga_dict['title']} {user_manga['title']} {user_manga['chapter']}/{total_manga_dict['latest']} {total_manga_dict['scansite']} {search_res} 'read: '{user_manga['read']}"
+                brk = False
+                alternate_titles.add(user_manga['title'])
+                for synonym in alternate_titles:
+                    search_res = self.fuzzy_search(synonym, total_manga_dict["title"])
+                    if search_res > 82:
+                        # if 'berserk' in item['title']:
+                        #     print('debvug')
+                        # sys.stdout.write('\x1b[2K')
+                        # if 'novel' in item['title']:
+                        #     print('debvug')
+                        # print(
+                        #     f" \r{length - i}/{length} {item['title']} {item['latest']} {item['scansite']}", end='')
+                        user_manga["latest"] = total_manga_dict["sources"]["any"][
+                            "latest"
+                        ]
+                        # if 'world-after' in item['title']:
+                        #     print('debug')
+                        user_manga["sources"] = self.update_user_sources(
+                            user_manga["sources"], total_manga_dict["sources"]
                         )
-                        pass
+                        current_source = user_manga["current_source"]
+                        curr_source = (
+                            "any"
+                            if current_source not in user_manga["sources"]
+                            else current_source
+                        )
+                        # print(manga['title'], user_id, manga)
+                        user_manga["read"] = float(
+                            user_manga["sources"][curr_source]["latest"]
+                        ) <= float(user_manga["chapter"])
+                        if not user_manga["read"]:
+                            print(
+                                f"in {user_id} {total_manga_dict['title']} {user_manga['title']} {user_manga['chapter']}/{total_manga_dict['latest']} {total_manga_dict['scansite']} {search_res} 'read: '{user_manga['read']}"
+                            )
+                            pass
+                        brk = True
+                        break
+                if brk:
                     break
         if not self.testing:
             db["manga-list"].find_one_and_update(
-                {"user": user_id}, {"$set": {f"manga-list": user_list}}
+                {"user": user_id}, {"$set": {"manga-list": user_list}}
             )
             pass
 
@@ -402,7 +438,7 @@ class Scraper(Source):
         # cosmic = Asura(sb, cosmic_url, "cosmicscans").main()
         luminous = AsuraLikes(sb, luminous_url, "luminouscans").main()
         riz_comics = AsuraLikes(sb, "https://rizzfables.com/", "rizzfables").main()
-        hive_scans = Leviatan(sb, 'https://hivetoon.com/', 'hivescans').scrape()
+        hive_scans = Hive(sb, 'https://hivetoon.com/', 'hivescans').scrape()
         # void = Asura(sb, void_url, "voidscans").main()
         # leviatan = Leviatan(sb, 'https://lscomic.com/', 'leviatanscans').scrape()
         # reaper = Reaper(sb).scrape()
@@ -472,14 +508,16 @@ class Scraper(Source):
                 print("selenium failed to start")
                 sb.driver.quit()
                 return
-            with open("D:\\projects\\python\\reddit-manga\\total_manga.json", "w") as f:
-                json.dump(total_manga, f, indent=4)
-            total_manga = self.combine_series_by_title(total_manga)
+            # with open("D:\\projects\\python\\reddit-manga\\total_manga.json", "w") as f:
+            #     json.dump(total_manga, f, indent=4)
+            total_manga: list[list[ComicData]] = self.combine_series_by_title(
+                total_manga
+            )
             data = total_manga
-            with open(
-                "D:\\projects\\python\\reddit-manga\\pre_processed.json", "w"
-            ) as f:
-                json.dump(data, f, indent=4)
+            # with open(
+            #     "D:\\projects\\python\\reddit-manga\\pre_processed.json", "w"
+            # ) as f:
+            #     json.dump(data, f, indent=4)
             print(len(total_manga))
         srt = time.perf_counter()
         new_list = []
@@ -493,7 +531,7 @@ class Scraper(Source):
                 if "old_chapters" in d:
                     del d["old_chapters"]
                 new_list.append(d)
-            except Exception as e:
+            except Exception:
                 print(traceback.format_exc())
                 with open("err.txt", "w") as f:
                     f.write(str(datetime.now()))
@@ -557,6 +595,7 @@ def cleanup_mei():
         for file in os.listdir(dir_mei):
             if file.startswith("_MEI") and not file.endswith(current_mei):
                 try:
+                    print('remove mei', file)
                     rmtree(os.path.join(dir_mei, file))
                 except (
                     PermissionError
@@ -573,28 +612,34 @@ if __name__ == "__main__":
     #     Scraper("False", False).combine_series_by_title(data)
     # time.sleep(10000)
 
+    time.sleep(60)
     cleanup_mei()
-    if net_test():
-        if first_run and not testing:
-            leviatan_url = get_leviatan_url()
-            change_leviatan_url(base_url=leviatan_url)
-        scraper = Scraper(leviatan_url, testing)
-        scraper.main(first_run=first_run)
-        time.sleep(1800)
-        scheduler = BlockingScheduler()
+    while True:
         try:
-            scheduler.add_job(
-                scraper.main,
-                "cron",
-                timezone="Europe/London",
-                start_date=datetime.now(),
-                id="scrape",
-                hour="*",
-                minute="*/30",
-                day_of_week="mon-sun",
-            )
-            scheduler.start()
-            pass
-        except Exception as e:
-            print(e, e.__class__)
-            scheduler.shutdown()
+            if net_test():
+                if first_run and not testing:
+                    leviatan_url = get_leviatan_url()
+                    change_leviatan_url(base_url=leviatan_url)
+                scraper = Scraper(leviatan_url, testing)
+                scraper.main(first_run=first_run)
+                time.sleep(1800)
+                scheduler = BlockingScheduler()
+                try:
+                    scheduler.add_job(
+                        scraper.main,
+                        "cron",
+                        timezone="Europe/London",
+                        start_date=datetime.now(),
+                        id="scrape",
+                        hour="*",
+                        minute="*/30",
+                        day_of_week="mon-sun",
+                    )
+                    scheduler.start()
+                    pass
+                except Exception as e:
+                    print(e, e.__class__)
+                    scheduler.shutdown()
+        except Exception:
+            print(traceback.format_exc())
+            time.sleep(300)

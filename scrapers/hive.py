@@ -1,4 +1,5 @@
 import datetime
+from pprint import pprint
 import re
 import time
 import traceback
@@ -9,13 +10,12 @@ from seleniumbase import SB
 from config import leviatan_url
 
 
-class Leviatan(Source):
+class Hive(Source):
     def __init__(self, sb, url, scansite) -> None:
         self.url = url
         self.scansite = scansite
         super().__init__(sb)
 
-    
     def convert_dates(self, date):
         try:
             date_object = datetime.datetime.strptime(date.strip(), "%b %d, %Y")
@@ -55,23 +55,24 @@ class Leviatan(Source):
         #     f.write(text)
         # with open('scrapers/test_pages/leviatan.html', 'r', encoding="utf-8") as f:
         #     text = f.read()
-        item_summary = soup.select('div[class*="luf"]')
-        for item in item_summary:
+        item_summary = soup.select(
+            'div.grid.grid-cols-2.md\:grid-cols-4.gap-x-4.lg\:gap-x-3.lg\:grid-cols-4.gap-y-4.min-h-\[350px\]'
+        )
+        divs_no_attrs = [
+            div for div in item_summary[0].find_all('div', recursive=False)
+        ]
+        for item in divs_no_attrs:
             d = {}
             old_chapters = {}
-            title_el = item.find("a").text
+            title_el = item.find("h1").text
             title = super().clean_title(title_el)
             try:
-                chapter_el = item.find("ul")
-                if not chapter_el:
-                    continue
-                chapter_container = item.find("ul")
-                chapters: list[Tag] = chapter_container.find_all("li")
+                chapters: list[Tag] = item.find_all("div", {"class": "chapterName"})
                 for chapter_obj in chapters[::-1]:
-                    chapter_link: Tag = chapter_obj.find("a")
-                    chapter = chapter_link.text
+                    chapter_link: Tag = chapter_obj.parent
+                    chapter = chapter_obj.text
                     link: str = chapter_link.get("href")  # type: ignore
-                    span = chapter_obj.find("span").text
+                    span = chapter_obj.find_next_sibling().text
                     time_updated = super().convert_time(span)
 
                     if not title or not chapter or not link:
@@ -92,9 +93,9 @@ class Leviatan(Source):
                     d["old_chapters"] = old_chapters
                 lst.append(d)
                 if debug:
-                    print({self.scansite}, title, chapter, time_updated)
+                    pprint(d)
             except Exception:
-                print({self.scansite}, title, traceback.format_exc())
+                print(self.scansite, title, traceback.format_exc())
                 pass
         if len(lst) == 0:
             print(f"{self.scansite} broken check logs")
@@ -108,6 +109,6 @@ class Leviatan(Source):
 
 if __name__ == "__main__":
     with SB() as sb:
-        manhua_fast = Leviatan(sb, "https://hivetoon.com/", "hivecomics").scrape(
-            scrape_site=False, debug=True
+        hive = Hive(sb, "https://hivetoon.com/", "hivecomics").scrape(
+            scrape_site=True, debug=True
         )

@@ -75,7 +75,7 @@ class Source:
 
     def convert_time(self, time_updated: str) -> float:
         # space between dates nov 23 2022 and current date
-        if 'today' in time_updated.lower():
+        if 'today' in time_updated.lower() or 'new' in time_updated.lower():
             return time.time()
         if 'yesterday' in time_updated.lower():
             return time.time() - 86400

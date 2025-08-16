@@ -46,7 +46,7 @@ class Flix(Source):
             source = self.driver.get_page_source()
             soup = BeautifulSoup(source, "html.parser")
             series_container = soup.find(class_="px-2")
-            all_series = series_container.find_all("div", {"dir": "ltr"})
+            all_series = series_container!.find_all("div", {"dir": "ltr"})
             for series in all_series:
                 try:
                     old_chapters = {}

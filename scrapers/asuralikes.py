@@ -115,7 +115,12 @@ class AsuraLikes(Source):
 if __name__ == "__main__":
     # scans = alphascans , luminousscans, cosmicscans, asurascans
     # s = Asura(cosmic_url, "cosmicscans")
-    with SB(undetectable=True) as sb:
+    with SB(undetectable=True,headless2=True) as sb:
+        sb.set_window_rect(0, 0, 1920, 1080)
+        sb.maximize_window()
+        rext = sb.get_window_rect()
+        print(f"Window rect: {rext}")
+        
         # chrome_options = uc.ChromeOptions()
         # chrome_options.add_argument("--window-position=2000,0")
         # driver = uc.Chrome(options=chrome_options)

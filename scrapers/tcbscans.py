@@ -9,11 +9,11 @@ from db import db
 from main import Source
 import undetected_chromedriver as uc
 from seleniumbase import SB, BaseCase
-
+from config import tcb_scans_url
 
 class TcbScraper(Source):
     def main(self):
-        req = requests.get("https://onepiecechapters.com/")
+        req = requests.get("{tcb_scans_url}/")
         # print(req.status_code, req.text)
         with open("scrapers/tcb.html", "w", encoding="utf-8") as f:
             print(req.status_code)
@@ -28,17 +28,17 @@ class TcbScraper(Source):
         strt = time.perf_counter()
         try:
             strt = time.perf_counter()
-            rq = requests.get("https://tcbscans.com", timeout=5)
+            rq = requests.get(f"{tcb_scans_url}", timeout=5)
             print(f'tcbscans  took {time.perf_counter() - strt} seconds')
             rq.raise_for_status()  # Raises HTTPError for bad responses
             soup = BeautifulSoup(rq.text, "html.parser")
         except requests.RequestException as e:
-            print(f'Error fetching "https://tcbscans.com": {e}')
+            print(f'Error fetching "{tcb_scans_url}": {e}')
             if isinstance(e, requests.ConnectTimeout):
                 return []
             print("Switching to Selenium...")
             data = super().html_page_source(
-                "https://tcbscans.com", success_selector='.bg-card'
+                f"{tcb_scans_url}", success_selector='.bg-card'
             )
             if not data:
                 return []
@@ -48,7 +48,7 @@ class TcbScraper(Source):
         for card in cards:
             link = card.find("a")
             url = link.get("href")
-            url = f"https://tcbscans.com{url}"
+            url = f"{tcb_scans_url}{url}"
             # print(timeago)
             d = {}
             try:
@@ -68,7 +68,7 @@ class TcbScraper(Source):
                     continue
                 d["title"] = title
                 d["latest"] = chapter
-                d["domain"] = "https://onepiecechapters.com/"
+                d["domain"] = f"{tcb_scans_url}/"
                 d["latest_link"] = url
                 d["scansite"] = "tcbscans"
                 lst.append(d)
