@@ -1,40 +1,35 @@
+import copy
 import os
 import re
 import time
 import traceback
-from pprint import pprint
 import json
 from pymongo import UpdateOne
-import undetected_chromedriver as uc
-import pygetwindow as gw
 import pyautogui
 import requests
 from apscheduler.schedulers.background import BlockingScheduler
 from thefuzz import fuzz
-from seleniumbase import SB, BaseCase
+from seleniumbase import SB
 from main import Source
 from scrapers.hive import Hive
 from scrapers.asura import Asura
 from scrapers.asuralikes import AsuraLikes
 from scrapers.flame import Flame
-from scrapers.leviatan import Leviatan
 from scrapers.manhua_updates import ManhuaPlus
-from scrapers.reaper import Reaper
 from scrapers.reddit import RedditScraper
 from scrapers.tcbscans import TcbScraper
 from datetime import datetime
 from db import db, net_test
 from config import (
-    testing,
     first_run,
     asura_url,
     leviatan_url,
-    luminous_url,
-    cosmic_url,
 )
 
 from selenium.webdriver import ChromeOptions
 from typing import Dict, Optional, TypedDict
+
+from ws_publish import broadcast_event, build_update_payload
 
 
 class Chapter(TypedDict):
@@ -77,7 +72,7 @@ class Scraper(Source):
         # pprint(total_manga)
         length = len(total_manga)
         scans = self.update_total_manga()
-        self.update_users()
+        changed_users = self.update_users()
 
         if curr_urls:
             [urls.add(url) for url in curr_urls["urls"]]
@@ -87,19 +82,23 @@ class Scraper(Source):
             db["scans"].find_one_and_update(
                 {}, {"$set": {"urls": list(urls)}}, upsert=True
             )
+        return changed_users
 
     def update_users(self):
         # self.test_search()
         # return
         print("update users")
+        changed_users = []
         for user in db["manga-list"].find({}):
             user_list = user["manga-list"]
             user_id = user["user"]
             if "backup" in user_id:
                 continue
             # print('u_id', user_id)
-            if user_list:
-                self.update_user_list(user_id, user_list)
+            if user_list and self.update_user_list(user_id, user_list):
+                changed_users.append(user_id)
+        print(f"user docs changed: {changed_users}")
+        return changed_users
 
     def test_search(self):
         for item in self.total_manga:
@@ -110,57 +109,105 @@ class Scraper(Source):
         if not self.total_manga:
             with open("new_list.json", "r") as f:
                 self.total_manga = json.load(f)
+        original_user_list = copy.deepcopy(user_list)
         for total_manga_dict in self.total_manga[::-1]:
+            top_score = 0
+            brk = False
+            highest_scoring_user_matching_manga = None
             for user_manga in user_list:
                 alternate_titles = (
                     set(user_manga['alternate_titles'])
                     if 'alternate_titles' in user_manga
                     else set()
                 )
-                brk = False
                 alternate_titles.add(user_manga['title'])
+                most_recent_update = 0
                 for synonym in alternate_titles:
                     search_res = self.fuzzy_search(synonym, total_manga_dict["title"])
-                    if search_res > 82:
-                        # if 'berserk' in item['title']:
-                        #     print('debvug')
-                        # sys.stdout.write('\x1b[2K')
-                        # if 'novel' in item['title']:
-                        #     print('debvug')
-                        # print(
-                        #     f" \r{length - i}/{length} {item['title']} {item['latest']} {item['scansite']}", end='')
-                        user_manga["latest"] = total_manga_dict["sources"]["any"][
-                            "latest"
-                        ]
-                        # if 'world-after' in item['title']:
-                        #     print('debug')
-                        user_manga["sources"] = self.update_user_sources(
-                            user_manga["sources"], total_manga_dict["sources"]
-                        )
-                        current_source = user_manga["current_source"]
-                        curr_source = (
-                            "any"
-                            if current_source not in user_manga["sources"]
-                            else current_source
-                        )
-                        # print(manga['title'], user_id, manga)
-                        user_manga["read"] = float(
-                            user_manga["sources"][curr_source]["latest"]
-                        ) <= float(user_manga["chapter"])
-                        if not user_manga["read"]:
-                            print(
-                                f"in {user_id} {total_manga_dict['title']} {user_manga['title']} {user_manga['chapter']}/{total_manga_dict['latest']} {total_manga_dict['scansite']} {search_res} 'read: '{user_manga['read']}"
-                            )
-                            pass
+                    if search_res > top_score:
+                        top_score = search_res
+                        highest_scoring_user_matching_manga = user_manga
+                    if search_res == 100:
                         brk = True
                         break
                 if brk:
                     break
-        if not self.testing:
-            db["manga-list"].find_one_and_update(
-                {"user": user_id}, {"$set": {"manga-list": user_list}}
+            if top_score < 82:
+                continue
+            if not highest_scoring_user_matching_manga:
+                print('no score')
+                continue
+            highest_scoring_user_matching_manga["latest"] = total_manga_dict["sources"][
+                "any"
+            ]["latest"]
+            most_recent_update_for_title = max(
+                highest_scoring_user_matching_manga["sources"][source]["time_updated"]
+                for source in highest_scoring_user_matching_manga["sources"]
             )
-            pass
+            if most_recent_update_for_title > most_recent_update:
+                self.update_sources_and_read(
+                    user_id,
+                    total_manga_dict,
+                    highest_scoring_user_matching_manga,
+                    top_score,
+                )
+
+        changed = self._check_list_for_changes(original_user_list, user_list)
+        if changed and not self.testing:
+            db["manga-list"].find_one_and_update(
+                {"user": user_id},
+                {"$set": {"manga-list": user_list}},
+                return_document=True,
+            )
+        return changed
+
+    def _check_list_for_changes(self, original, current):
+        current_by_id = {d.get("title"): d for d in current}
+        for doc in original:
+            doc_title = doc.get("title")
+            other = current_by_id.get(doc_title)
+            if not other or not doc_title:
+                continue
+
+            src1 = doc.get("current_source", "any")
+            src2 = other.get("current_source", "any")
+            latest1 = doc.get("sources", {}).get(src1, {}).get("latest")
+            latest2 = other.get("sources", {}).get(src2, {}).get("latest")
+            if latest1 != latest2:
+                print(
+                    f"original title {doc_title} latest chapter {latest1} != {latest2} Updating user "
+                )
+                return True
+        return False
+
+    def update_sources_and_read(
+        self,
+        user_id,
+        total_manga_dict,
+        user_manga,
+        search_res,
+    ):
+        user_manga["sources"] = self.update_user_sources(
+            user_manga["sources"], total_manga_dict["sources"]
+        )
+        current_source = user_manga["current_source"]
+        curr_source = (
+            "any" if current_source not in user_manga["sources"] else current_source
+        )
+        try:
+            user_manga["read"] = float(
+                user_manga["sources"][curr_source]["latest"]
+            ) <= float(user_manga["sources"][curr_source]["chapter"])
+        except Exception:
+            user_manga["read"] = float(
+                user_manga["sources"][curr_source]["latest"]
+            ) <= float(user_manga['chapter'])
+        if not user_manga["read"]:
+            print(
+                f"in {user_id} {user_manga['title']} user chapter: {user_manga['sources'][curr_source]['chapter'] if 'chapter' in user_manga['sources'][curr_source] else 0} \
+                    {user_manga['chapter']} /{total_manga_dict['latest']} {total_manga_dict['scansite']} score: {search_res} 'read: '{user_manga['read']}"
+            )
+        return user_manga
 
     def format_title(self, title):
         t1 = re.sub(r"remake", "", title)
@@ -169,28 +216,33 @@ class Scraper(Source):
 
     def update_total_manga(self):
         scans = set()
-        all_manga = db["all_manga"].find()
+        all_manga = db["all_manga"].find({}, projection={'_id': 1, 'title': 1})
 
         if not self.total_manga:
             with open("new_list.json", "r") as f:
                 self.total_manga = json.load(f)
-
+        all_manga_titles = [{"title": manga['title'], "_id": manga['_id']} for manga in all_manga]
         bulk_updates = []
-        manga_titles = set(item["title"] for item in self.total_manga)
+        # manga_titles = set(item["title"] for item in self.total_manga)
         for i, item in enumerate(self.total_manga[::-1]):
             scans.add(item["domain"])
             item["latest_sort"] = float(item["latest"])
 
-            req = db["all_manga"].find_one({"title": item["title"]})
+            # req = db["all_manga"].find_one({"title": item["title"]})
+            req = [
+                manga_title
+                for manga_title in all_manga_titles
+                if manga_title['title'] == item['title']
+            ]
             print(
                 f"\r {len(self.total_manga) - i}/{len(self.total_manga)}", end="\x1b[1K"
             )
             if req and not self.testing:
-                bulk_updates.append(UpdateOne({"_id": req["_id"]}, {"$set": item}))
-            elif req is None:
+                bulk_updates.append(UpdateOne({"_id": req[0]["_id"]}, {"$set": item}))
+            elif not req:
                 best_match = None
                 best_ratio = 0
-                for m in all_manga:
+                for m in all_manga_titles:
                     ratio = fuzz.ratio(item["title"], m["title"])
                     if ratio > 80 and ratio > best_ratio:
                         best_match = m
@@ -264,11 +316,16 @@ class Scraper(Source):
                 if source in user_manga:
                     if "url" in user_manga[source]:
                         total_manga[source]["url"] = user_manga[source]["url"]
+                    if "chapter" in user_manga[source]:
+                        total_manga[source]["chapter"] = user_manga[source]["chapter"]
                     if float(total_manga[source]["latest"]) < float(
                         user_manga[source]["latest"]
                     ):
                         print(
                             f"{total_manga[source]['latest']} < {user_manga[source]['latest']}",
+                            source,
+                            total_manga[source]['latest_link'],
+                            source,
                             user_manga[source]["latest_link"],
                         )
                         # source_list[source]['latest'] = curr[source]['latest']
@@ -436,7 +493,6 @@ class Scraper(Source):
             asura2 = Asura(sb, f"{asura_url}/page/2/", "asurascans").main()
         # alpha = Asura('https://alpha-scans.org/', 'alphascans').main()
         # cosmic = Asura(sb, cosmic_url, "cosmicscans").main()
-        luminous = AsuraLikes(sb, luminous_url, "luminouscans").main()
         riz_comics = AsuraLikes(sb, "https://rizzfables.com/", "rizzfables").main()
         hive_scans = Hive(sb, 'https://hivetoon.com/', 'hivescans').scrape()
         # void = Asura(sb, void_url, "voidscans").main()
@@ -455,7 +511,6 @@ class Scraper(Source):
         all_manga += (
             asura
             + asura2
-            + luminous
             + riz_comics
             + hive_scans
             # + void
@@ -470,11 +525,12 @@ class Scraper(Source):
 
         # all_manga += leviatan
         # all_manga = tcb
-
+        filtered = [x for x in all_manga if x["time_updated"]]
+        print(len(all_manga), len(filtered))
         # pprint(all_manga)
-        all_manga = sorted(all_manga, key=lambda k: k["time_updated"], reverse=True)
+        filtered = sorted(filtered, key=lambda k: k["time_updated"], reverse=True)
 
-        return all_manga
+        return filtered
 
     @staticmethod
     def api_test():
@@ -539,7 +595,22 @@ class Scraper(Source):
                     f.write(str(manga))
         with open("D:\\projects\\python\\reddit-manga\\new_list.json", "w") as f:
             json.dump(new_list, f, indent=4)
-        self.scrape(new_list)
+        changed_users = self.scrape(new_list)
+        if changed_users:
+            try:
+                sent = broadcast_event(
+                    build_update_payload(),
+                    user_ids=changed_users,
+                )
+                print(
+                    f"WebSocket notify sent to {sent} connections "
+                    f"for {len(changed_users)} changed users"
+                )
+            except Exception:
+                print("WebSocket notify failed")
+                print(traceback.format_exc())
+        else:
+            print("WebSocket notify skipped: no user manga-list changes")
         print("\ntime taken", time.perf_counter() - srt)
         return new_list
 
@@ -611,16 +682,11 @@ if __name__ == "__main__":
     #     data = json.load(f)
     #     Scraper("False", False).combine_series_by_title(data)
     # time.sleep(10000)
-
-    time.sleep(60)
     cleanup_mei()
     while True:
         try:
             if net_test():
-                if first_run and not testing:
-                    leviatan_url = get_leviatan_url()
-                    change_leviatan_url(base_url=leviatan_url)
-                scraper = Scraper(leviatan_url, testing)
+                scraper = Scraper(leviatan_url, testing=False)
                 scraper.main(first_run=first_run)
                 time.sleep(1800)
                 scheduler = BlockingScheduler()
@@ -636,7 +702,7 @@ if __name__ == "__main__":
                         day_of_week="mon-sun",
                     )
                     scheduler.start()
-                    pass
+
                 except Exception as e:
                     print(e, e.__class__)
                     scheduler.shutdown()
