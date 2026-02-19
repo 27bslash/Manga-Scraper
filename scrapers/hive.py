@@ -51,23 +51,20 @@ class Hive(Source):
                     return []
                 soup = BeautifulSoup(data, "html.parser")
 
-        # with open('scrapers/test_pages/leviatan.html', 'w', encoding="utf-8") as f:
-        #     f.write(text)
-        # with open('scrapers/test_pages/leviatan.html', 'r', encoding="utf-8") as f:
-        #     text = f.read()
-        item_summary = soup.select(
-            'div.grid.grid-cols-2.md\:grid-cols-4.gap-x-4.lg\:gap-x-3.lg\:grid-cols-4.gap-y-4.min-h-\[350px\]'
-        )
-        divs_no_attrs = [
-            div for div in item_summary[0].find_all('div', recursive=False)
-        ]
-        for item in divs_no_attrs:
+        # divs_no_attrs = [
+        #     div for div in item_summary[0].find_all('figure', recursive=False)
+        # ]
+        # select all series containers
+        item_summary: list[Tag] = list(soup.select('figure'))
+        if not item_summary:
+            return []
+        for item in item_summary:
             d = {}
             old_chapters = {}
-            title_el = item.find("h1").text
-            title = super().clean_title(title_el)
             try:
-                chapters: list[Tag] = item.find_all("div", {"class": "chapterName"})
+                title_el: Tag = item.find("a", class_="text-base")
+                title = super().clean_title(title_el.text)
+                chapters = item.select("span.text-gray-400")
                 for chapter_obj in chapters[::-1]:
                     chapter_link: Tag = chapter_obj.parent
                     chapter = chapter_obj.text
@@ -91,11 +88,12 @@ class Hive(Source):
                         "scansite": self.scansite,
                     }
                     d["old_chapters"] = old_chapters
-                lst.append(d)
+                if d:
+                    lst.append(d)
                 if debug:
                     pprint(d)
             except Exception:
-                print(self.scansite, title, traceback.format_exc())
+                print(self.scansite, traceback.format_exc())
                 pass
         if len(lst) == 0:
             print(f"{self.scansite} broken check logs")
@@ -110,5 +108,5 @@ class Hive(Source):
 if __name__ == "__main__":
     with SB() as sb:
         hive = Hive(sb, "https://hivetoon.com/", "hivecomics").scrape(
-            scrape_site=True, debug=True
+            scrape_site=False, debug=True
         )
