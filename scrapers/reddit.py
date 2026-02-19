@@ -120,7 +120,7 @@ class RedditScraper:
             title = re.sub(r"\s?\-\s?$", "", title[0])
             if "webtoons" in submission.url:
                 title = re.sub(r"Season.*", "", title)
-            title = re.sub(r"\[.*DISC.*\]", "", title, flags=re.IGNORECASE)
+            title = re.sub(r"\[DISC\]", "", title, flags=re.IGNORECASE)
             title = re.sub(r"::", "", title)
             title = re.sub(r"[|()\[\]]", "", title)
             title = title.replace("&", "and")
@@ -320,8 +320,9 @@ class RedditScraper:
                 if domain and "twitter" not in domain and "cubari" not in domain:
                     scan_site = self.get_scans(url=domain)
                 else:
-                    print(title, 'no domain', chapter_num)
-                    continue
+                    domain = "reddit.com"
+                if not scan_site:
+                    scan_site = 'reddit'
             else:
                 url = submission.url
                 scan_site = self.get_scans(url=domain)
