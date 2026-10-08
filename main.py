@@ -1,7 +1,9 @@
 import re
 import time
 import traceback
+import requests
 
+from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.options import Options
@@ -56,7 +58,68 @@ class Source:
         db_entry["sources"][scansite] = source_string
         return db_entry["sources"]
 
-    def clean_title(self, title):
+    def fetch_html(
+        self,
+        url,
+        success_selector=None,
+        scrape_site=True,
+        test_file=None,
+        headers=None,
+        timeout=5,
+    ):
+        if not scrape_site:
+            if test_file:
+                with open(test_file, "r", encoding="utf-8") as f:
+                    return BeautifulSoup(f.read(), "html.parser")
+            return None
+
+        try:
+            response = requests.get(url, headers=headers or {}, timeout=timeout)
+            response.raise_for_status()
+            return BeautifulSoup(response.text, "html.parser")
+        except requests.RequestException as e:
+            print(f"Error fetching {url}: {e}")
+            if isinstance(e, requests.ConnectTimeout):
+                return None
+            if success_selector:
+                print("Switching to Selenium for", url)
+                page_content = self.html_page_source(url, success_selector)
+                if not page_content:
+                    return None
+                return BeautifulSoup(page_content, "html.parser")
+            return None
+
+    def build_series_item(
+        self,
+        title,
+        chapter,
+        link,
+        time_updated,
+        scansite,
+        domain,
+        type_=None,
+        old_chapters=None,
+    ):
+        if old_chapters is None:
+            old_chapters = {}
+        series = {
+            "title": title,
+            "latest": chapter,
+            "latest_link": link,
+            "time_updated": time_updated,
+            "scansite": scansite,
+            "domain": domain,
+            "type": type_ or scansite,
+        }
+        old_chapters[str(chapter)] = {
+            "latest_link": link,
+            "scansite": scansite,
+        }
+        series["old_chapters"] = old_chapters
+        return series
+
+    @staticmethod
+    def clean_title(title):
         return (
             re.sub(r"\s\s+", " ", title)
             .strip()
@@ -65,20 +128,25 @@ class Source:
             .lower()
         )
 
-    def clean_chapter(self, chapter):
-        regex = r"(?<=Chapter )\d+"
-        match = re.search(regex, chapter)
+    @staticmethod
+    def clean_chapter(chapter):
+        match = re.search(r"Chapter\s+(\d+(?:\.\d+)?)", chapter)
         if match:
-            return match.group().strip()
+            return match.group(1)
         else:
-            return re.sub(r"[^\d\.]+", "", chapter.replace("Chapter ", "").strip())
+            print(chapter)
+        return None
 
-    def convert_time(self, time_updated: str) -> float:
+    @staticmethod
+    def convert_time(time_updated: str) -> float:
         # space between dates nov 23 2022 and current date
+        """converts time string to unix time"""
         if 'today' in time_updated.lower() or 'new' in time_updated.lower():
             return time.time()
         if 'yesterday' in time_updated.lower():
             return time.time() - 86400
+        if 'last' in time_updated.lower():
+            return time.time() - 7 * 86400
         splt = time_updated.split(" ")
         n = splt[0]
         amount = splt[1].replace("s", "")
@@ -161,9 +229,6 @@ class Source:
         #         f"page source failed for {url} this should never happen! \n {traceback.format_exc()}"
         #     )
         #     return None
-
-    def __call__(self):
-        pass
 
 
 if __name__ == "__main__":

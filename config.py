@@ -1,6 +1,7 @@
 testing = False
 first_run = True
-asura_url = "https://asuracomic.net"
+asura_url = "https://asurascans.com"
+asura_api_url = "https://api.asurascans.com"
 base_reaper_url = "https://reapercomics.com/"
 reaper_url = f"{base_reaper_url}latest/comics"
 leviatan_url = "https://lscomic.com/"

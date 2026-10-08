@@ -11,6 +11,7 @@ import undetected_chromedriver as uc
 from seleniumbase import SB, BaseCase
 from config import tcb_scans_url
 
+
 class TcbScraper(Source):
     def main(self):
         req = requests.get("{tcb_scans_url}/")
@@ -55,8 +56,7 @@ class TcbScraper(Source):
                 timeago = card.find("time-ago").get("datetime")
                 path = re.search(link_regex, url).group(0)
                 title = re.search(title_regex, path).group(0)
-                chapter = re.search(chapter_regex, path).group(0)
-                chapter = super().clean_chapter(chapter)
+                chapter = re.search(chapter_regex, path).group(0).strip()
                 title = super().clean_title(title)
                 time_updated = self.convert_time_string(timeago)
                 d["type"] = "tcb"
@@ -81,7 +81,41 @@ class TcbScraper(Source):
         # print(lst)
         if len(lst) == 0:
             print("tcb broken check logs")
-        # print(time.perf_counter()-strt)
+            print(
+                f"  status_code : {rq.status_code if 'rq' in dir() else 'request failed'}"
+            )
+            print(f"  cards found : {len(cards)}")
+            if cards:
+                first = cards[0]
+                print(f"  first card HTML snippet:\n{first.prettify()[:500]}")
+                link = first.find("a")
+                timeago = first.find("time-ago")
+                print(
+                    f"  first card has <a>        : {link is not None} | href={link.get('href') if link else 'N/A'}"
+                )
+                print(
+                    f"  first card has <time-ago> : {timeago is not None} | datetime={timeago.get('datetime') if timeago else 'N/A'}"
+                )
+                if link:
+                    path = re.search(link_regex, link.get("href", ""))
+                    print(
+                        f"  link_regex match          : {path.group(0) if path else 'NO MATCH'}"
+                    )
+                    if path:
+                        title_m = re.search(title_regex, path.group(0))
+                        chapter_m = re.search(chapter_regex, path.group(0))
+                        print(
+                            f"  title_regex match         : {title_m.group(0) if title_m else 'NO MATCH'}"
+                        )
+                        print(
+                            f"  chapter_regex match       : {chapter_m.group(0) if chapter_m else 'NO MATCH'}"
+                        )
+                return []  # Return empty list if no valid data was extracted
+            else:
+                print("  selector 'div[class*=bg-card]' matched nothing")
+                print(f"  page snippet:\n{soup.prettify()[:1000]}")
+                # print(time.perf_counter()-strt)
+                return lst
         return lst
 
     def convert_time_string(self, timestamp):
